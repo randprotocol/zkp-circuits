@@ -93,7 +93,8 @@ pub type CudaPcs = HidingFriPcs<Val, rand_zkvm_cuda::GpuDft, CudaValMmcs, Extens
 #[cfg(feature = "cuda")]
 pub type CudaConfig = StarkConfig<CudaPcs, Challenge, Challenger>;
 
-pub enum Backend { Cpu, #[cfg(feature = "cuda")] Cuda }
+pub enum Backend { Cpu, #[cfg(feature = "cuda")] Cuda,
+                   #[cfg(feature = "reference-backend")] Reference }  // test-only twins
 
 impl Machine {
     pub fn prove(&self, …)                       // unchanged, CPU
