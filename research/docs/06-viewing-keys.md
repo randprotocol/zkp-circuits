@@ -152,7 +152,7 @@ set of rows confirms each row independently of whoever produced it:
 | `row.time == ledger.tx.time` | `Time` |
 | `row.cm_in`, `row.nf` equal the chain's | `Nullifier` |
 | `Received`: `note.pk == vk.pk()`; `Sent`: `note.from == vk.pk()` | `Party` |
-| `Sent`: `H_CM(spent) == cm_in` and `H_NF(nk, spent.ρ) == nf` | `Nullifier` |
+| `Sent`: `H_CM(spent) == cm_in` and `H_NF(nk, spent.ρ) == nf` (a mint has neither, and must carry no `spent`) | `Nullifier` |
 | the row's role is one this disclosure can produce | `Scope` |
 
 Who can check what follows from who holds `nk`. The sender's viewing key
@@ -211,4 +211,4 @@ other note the sender owns.
 | `Arx8` permutation | 321 instructions; 2-word hash ≈ 350 cycles, 10-word (a commitment) ≈ 1 040 |
 | hashes per transfer | 5 calls, 9 permutations |
 | envelope | 1 088 (KEM) + 3 × (12 + 16) + 32 + 32 + 40 bytes ≈ 1.3 KB |
-| test-profile proof | ~1 minute in `cargo test` (opt-level 1, debug constraint checking) |
+| test-profile proof | ≈ 30 s in `cargo test` (opt-level 1, debug constraint checking); the two proof-backed tests take 70 s together |

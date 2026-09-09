@@ -141,7 +141,11 @@ fn disclosure_scopes_and_row_verification() {
     for r in &rows { verify_row(l, &bob, r).unwrap(); }
     let carol = Disclosure::Party(s.carol.vk);
     assert_eq!(scan(l, &carol).iter().map(|r| (r.tx, r.role)).collect::<Vec<_>>(), vec![(1, Role::Received), (3, Role::Sent)]);
-    assert_eq!(scan(l, &Disclosure::Party(s.bridge.vk)).iter().map(|r| (r.tx, r.role)).collect::<Vec<_>>(), vec![(0, Role::Sent), (1, Role::Sent)]);
+    let bridge = Disclosure::Party(s.bridge.vk);
+    let rows = scan(l, &bridge);
+    assert_eq!(rows.iter().map(|r| (r.tx, r.role, r.spent)).collect::<Vec<_>>(), vec![(0, Role::Sent, None), (1, Role::Sent, None)], "mints are sent from nothing");
+    for r in &rows { verify_row(l, &bridge, r).unwrap(); }
+    for r in scan(l, &carol) { verify_row(l, &carol, &r).unwrap(); }
     assert!(scan(l, &Disclosure::Party(Party::new().vk)).is_empty(), "a stranger's key opens nothing");
 
     // One transaction: the key opens tx 2 and only tx 2.
@@ -178,7 +182,10 @@ fn rejects(f: impl FnOnce() -> Result<(), rand_zkvm::machine::VerifyError>) -> b
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(Ok(())) => false,
         Ok(Err(_)) => true,
-        Err(p) => p.downcast_ref::<String>().map(|s| s.contains("constraints not satisfied on row")).unwrap_or(false),
+        Err(p) => {
+            let msg = p.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| p.downcast_ref::<String>().cloned()).unwrap_or_default();
+            msg.contains("constraints not satisfied on row")
+        }
     }
 }
 

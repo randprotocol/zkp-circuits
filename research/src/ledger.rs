@@ -68,13 +68,20 @@ impl Ledger {
     /// first so a node never pays for a STARK verification of a transaction it would reject
     /// anyway; the proof is then verified and the sets updated.
     pub fn apply(&mut self, machine: &Machine, proof: &Proof, envelope: Envelope) -> Result<usize, LedgerError> {
-        let out = |i: usize| proof.public_values.get(crate::tables::cpu::pv::OUT0 + i).copied().unwrap_or(u64::MAX);
+        use crate::tables::cpu::pv;
+        // Same shape check `verify` makes first, so a malformed proof is a proof error and not
+        // a misleading "unknown commitment". A slot outside 32 bits cannot come from an honest
+        // trace (an output is a register word); `verify` rejects it, and until then it is
+        // simply a value no set contains.
+        if proof.public_values.len() != pv::NUM { return Err(LedgerError::Proof(VerifyError::PublicValues)); }
+        let out = |i: usize| proof.public_values[pv::OUT0 + i];
         let word2 = |i: usize| [out(i) as u32, out(i + 1) as u32];
-        let (cm_in, nf, cm_out, time) = (word2(output::CM_IN), word2(output::NF), word2(output::CM_OUT), out(output::TIME) as u32);
-        if !self.commitments.contains(&cm_in) { return Err(LedgerError::UnknownCommitment(cm_in)); }
+        let (cm_in, nf, cm_out) = (word2(output::CM_IN), word2(output::NF), word2(output::CM_OUT));
+        if out(output::CM_IN) > u32::MAX as u64 || out(output::CM_IN + 1) > u32::MAX as u64 || !self.commitments.contains(&cm_in) { return Err(LedgerError::UnknownCommitment(cm_in)); }
         if self.nullifiers.contains(&nf) { return Err(LedgerError::Spent(nf)); }
         if self.commitments.contains(&cm_out) { return Err(LedgerError::Duplicate(cm_out)); }
-        if time != self.now { return Err(LedgerError::Time { claimed: time, now: self.now }); }
+        if out(output::TIME) != self.now as u64 { return Err(LedgerError::Time { claimed: out(output::TIME) as u32, now: self.now }); }
+        let time = self.now;
         machine.verify(&self.program, proof).map_err(LedgerError::Proof)?;
         self.nullifiers.insert(nf);
         self.commitments.insert(cm_out);

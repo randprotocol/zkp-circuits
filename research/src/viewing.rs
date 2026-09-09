@@ -226,9 +226,15 @@ pub fn verify_row(ledger: &Ledger, d: &Disclosure, row: &Row) -> Result<(), RowE
         }
         (Disclosure::Party(vk), Role::Sent) => {
             if n.from != vk.pk() { return Err(RowError::Party); }
-            let spent = row.spent.ok_or(RowError::Nullifier)?;
-            if spent.pk != vk.pk() { return Err(RowError::Party); }
-            if Some(spent.commitment()) != t.cm_in || Some(vk.nullifier(spent.rho)) != t.nf { return Err(RowError::Nullifier); }
+            match (t.cm_in, row.spent) {
+                // A mint: created from nothing, so there is no nullifier to check.
+                (None, None) => {}
+                (Some(cm_in), Some(spent)) => {
+                    if spent.pk != vk.pk() { return Err(RowError::Party); }
+                    if spent.commitment() != cm_in || Some(vk.nullifier(spent.rho)) != t.nf { return Err(RowError::Nullifier); }
+                }
+                _ => return Err(RowError::Nullifier),
+            }
         }
         _ => return Err(RowError::Scope),
     }
