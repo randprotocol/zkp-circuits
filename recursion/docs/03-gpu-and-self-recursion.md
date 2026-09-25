@@ -102,8 +102,11 @@ test): two test-profile fixtures, 16 queries each —
 
 | fixture | tier | cpu rows | permutations | mem accesses | program instrs | witness words | phase 5 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| toy (every table, 17 instrs) | 8 | 275 135 | 7 438 | 402 810 | 276 978 | 29 367 | 7 245 |
-| busy (2 048 stores + 64 perms) | 13 | 367 260 | 9 088 | 478 728 | 369 363 | 35 199 | 7 525 |
+| toy (every table, 17 instrs) | 8 | 275 215 | 7 440 | 402 909 | 277 058 | 29 375 | 7 245 |
+| busy (2 048 stores + 64 perms) | 13 | 367 340 | 9 090 | 478 827 | 369 443 | 35 207 | 7 525 |
+
+These include AGG-2's eight binding words (2026-09-25: +80 rows, +2 permutations, +99 memory
+accesses, +80 instructions, +8 witness words at both shapes; see `02-aggregate.md`).
 
 Phase 5 is **not** height-independent (7 245 → 7 525): the constraint DAG is per-chip, but the
 emitted selectors and the quotient recomposition square `log(degree_bits)` times per instance,

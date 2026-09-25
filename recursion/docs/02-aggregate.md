@@ -4,7 +4,8 @@ M5.3 (plan: `docs/superpowers/plans/2026-09-15-zkvm-m5-3.md`; the machine and it
 numbers: `docs/01-rvm-machine.md`). One **N-generic aggregate program per inner shape** (R1):
 a counted loop over the tape's `N`, each iteration the single-proof verifier's phases 0–7 over
 that proof's tape region with a fresh challenger (R2), then the interface digest over
-`[inner_vk_digest ‖ N ‖ 34·N]` (R5). The fullnode registers one program digest per inner shape
+`[inner_vk_digest ‖ N ‖ B(8) ‖ 34·N]` (R5; the eight binding words B are audit v3's AGG-2
+amendment, below). The fullnode registers one program digest per inner shape
 (R6); the program covers every `N` the tape holds, because the loop count is a tape value, not a
 build-time constant.
 
@@ -13,6 +14,31 @@ crate's documented command and is pinned by a test where the plan asks for one: 
 numbers in `tests/pins.json` (`tests/aggregate.rs::the_per_n_cycle_budget_is_pinned`), the N=1
 differential and the tamper table in the same file, the stub vectors in
 `the_admission_stub_vectors`. Estimates are labelled with their derivation.
+
+## AGG-2: the aggregate binding (audit v3, amended 2026-09-25)
+
+Before this amendment the interface was `[vk ‖ N ‖ 34·N]` and said nothing about who made the
+proof: a registered aggregator could take another's valid aggregate, re-sign the transaction
+under its own identity and nonce, and be paid for it. The program now hints eight binding words
+straight after `N` and absorbs them into the interface sponge between `N` and the public values,
+so the published digest covers `[vk(4) ‖ N ‖ B(8) ‖ 34·N]` with
+`B = H("rand-aggregate-bind-1", chain_id ‖ aggregator ‖ nonce)`, derived in `randprotocol-core`.
+Eight words are exactly two rate fills, so the absorb schedule after them is the one the count
+word alone left, and the unconditional final permutation still holds.
+
+- `aggregate(…, binding, …)` proves under the caller's own triple.
+- `verify_aggregate(…, binding)` takes the chain's *own* recompute from the transaction and
+  refuses a list carrying any other words (`BindingMismatch`) before the digest check. A list
+  whose words are rewritten to match fails the digest (`DigestMismatch`), because the program
+  absorbed the prover's words.
+- The self-verifier (`rv32r`) carries the outer transaction's binding the same way:
+  `[rvm_vk ‖ 1 ‖ B(8) ‖ 4]`, over the tape `WitnessTape::build_for_with_binding`.
+- Cost: +80 cpu rows, +2 permutations, +74 memory accesses, +8 witness words, the same at every
+  N (preamble only). Rows are now `408 + N · 441 454 + 4·⌊N/2⌋` and the tape is `9 + 43 344·N`
+  words. The pins are in `tests/pins.json`, and `LOOP_OVERHEAD` is 219. The tables below are the
+  M5.3 measurements from before the binding.
+- The program digest changes, so the fullnode re-vendors and re-pins `aggregate_program_digest`.
+  **The production proof batch must use this program** (the fullnode's audit-v3 plan, task C4).
 
 ## The N-economics, measured (test profile)
 
@@ -101,13 +127,14 @@ carry the watchdog command lines.
   preprocessed cap.
 - `aggregate_program(vk) -> Program` and `aggregate_program_digest(shape, key) -> [F; 4]` — the
   registered artifact and its name: the N-generic program, built once, pinned by digest.
-- `aggregate(m, vk, proofs, tier) -> Result<AggregateProof, AggregateError>` — refuses the
+- `aggregate(m, vk, proofs, binding, tier) -> Result<AggregateProof, AggregateError>` — refuses the
   empty set (`Empty`), shape-checks every inner proof before any tape work
   (`WrongShape { index }`), builds the N-proof tape (`Tape`), proves (`Prove`), and asserts the
   executed program's published digest equals the host-computed one at prove time
   (`DigestMismatch`, R6). Returns the proof and its §4.4 list.
-- `verify_aggregate(m, program, a) -> Result<Vec<[u32; 8]>, VerifyAggregateError>` — recomputes
-  the §4.4 digest from `a.public` and compares it against the proof's batch public values
+- `verify_aggregate(m, program, a, binding) -> Result<Vec<[u32; 8]>, VerifyAggregateError>` —
+  refuses a list whose eight binding words are not the caller's `binding` (`BindingMismatch`,
+  AGG-2), then recomputes the §4.4 digest from `a.public` and compares it against the proof's batch public values
   (`DigestMismatch` — the `verify_public` pattern), then runs the ordinary rVM
   `Machine::verify` (`Verify`), and returns each covered bundle's `OUT0..7` in proof order.
 
@@ -154,8 +181,12 @@ A new, small fullnode-side function; no rVM vendoring in M5.3. Exactly:
    `Machine::verifier_key(tier, the six heights)`, then
    `inner_vk_digest = PaddingFreeSponge<Perm, 8, 4, 4>` over
    `[RVM_VK_DOMAIN = 16 ‖ shape words ‖ cap(16)]`.
-4. Build the interface list `[inner_vk_digest(4) ‖ covers.len() ‖ per bundle its 34 pv in cover
-   order]`, and `public_digest` over it: state `[0,0,0,0, RVM_PUB_DOMAIN = 17, len, 0, 0]`,
+4. Compute the transaction's binding `B = H("rand-aggregate-bind-1", chain_id ‖ aggregator ‖
+   nonce)` as eight `u32` words (`aggregate_binding` in `randprotocol-core`; AGG-2). The node
+   derives it from the transaction it is admitting — never from the words the proof's list
+   carries.
+   Build the interface list `[inner_vk_digest(4) ‖ covers.len() ‖ B(8) ‖ per bundle its 34 pv in
+   cover order]`, and `public_digest` over it: state `[0,0,0,0, RVM_PUB_DOMAIN = 17, len, 0, 0]`,
    then one permutation per four words overwriting rate lanes 0..4 (a partial trailing block
    overwrites only its own lanes), digest = lanes 0..4.
 5. Compare the four words with the aggregate proof's batch public values; mismatch → the
@@ -169,19 +200,22 @@ A new, small fullnode-side function; no rVM vendoring in M5.3. Exactly:
   sizes and tier are data-independent, so a regenerated fixture cache reproduces it; pinned in
   the test):
   `33a94ec690bb7cbe5a3d4564967460996277ac61b539f6525b5fe7f92992a1c8`
-- the interface list, 107 words: `[vk(4) ‖ 3 ‖ 34·3]`. The fixture notes are random per cache (this cache regenerated
+- the binding (AGG-2), the tests' fixed stand-in `common::TEST_BINDING` — on a chain it is the
+  transaction's `H("rand-aggregate-bind-1", chain_id ‖ aggregator ‖ nonce)`:
+  `00000000a662000000000000a662000100000000a662000200000000a662000300000000a662000400000000a662000500000000a662000600000000a6620007`
+- the interface list, 115 words: `[vk(4) ‖ 3 ‖ B(8) ‖ 34·3]`. The fixture notes are random per cache (this cache regenerated
   2026-09-21 after the original was lost; the vk digest above is unchanged),
   so the list rides on this checkout's fixtures; its *shape* is pinned — word 4 is `3` (the
-  count), words 5, 39, 73 are `0` (each proof's `PC_ENTRY`), words 6, 40, 74 are `14` (every
+  count), words 5–12 are the binding, words 13, 47, 81 are `0` (each proof's `PC_ENTRY`), words 14, 48, 82 are `14` (every
   proof's `TIER`), each proof's `HC0..7` run repeats across the three (same bundle program)
   while its `IN0..7` run differs (different inputs), and its `PUB0..7` run repeats (the empty
   public segment's `H_PUB`, a constant of the shape). As measured on this checkout:
 
   ```
-  33a94ec690bb7cbe5a3d4564967460996277ac61b539f6525b5fe7f92992a1c800000000000000030000000000000000000000000000000e000000000a37f92000000000ac819f8e00000000f82f671d00000000354a3037000000003153f3de000000009a2dcd060000000046a46766000000009d44a4ad000000006f35274a000000000371953700000000a8a42560000000004b291c6600000000b7c2de0e00000000d6bf7fcf00000000182b470b00000000fb4abd6c00000000a26dd43c00000000e9cb3eb300000000ac53ff3d00000000ae693458000000009609b3a0000000008cd378a4000000008ef51ada00000000f65dd77800000000934a275900000000d5389ac8000000002e612784000000008639ed090000000085f58a21000000004448d889000000006bb9c915000000000671dc2c0000000000000000000000000000000e00000000c58f3f9d00000000377d3abb0000000014f687b8000000007f9cd8d900000000a4e0896200000000d61a1017000000008205eec600000000b625bd4c000000006f35274a000000000371953700000000a8a42560000000004b291c6600000000b7c2de0e00000000d6bf7fcf00000000182b470b00000000fb4abd6c00000000edcf535f00000000777cd08d000000006e199e6b00000000fc87f93b00000000002a7d2c0000000051a00288000000000dd4c690000000007c52d05d00000000934a275900000000d5389ac8000000002e612784000000008639ed090000000085f58a21000000004448d889000000006bb9c915000000000671dc2c0000000000000000000000000000000e00000000eac3c4d10000000033df413600000000182f953e00000000bcd17c110000000073f3f13400000000eea424400000000084cd185d000000007f3faedb000000006f35274a000000000371953700000000a8a42560000000004b291c6600000000b7c2de0e00000000d6bf7fcf00000000182b470b00000000fb4abd6c0000000017db673f00000000057e71ce000000005fef925c00000000be76fcf500000000a2288d160000000033bcde4400000000c40acedf00000000e584ded700000000934a275900000000d5389ac8000000002e612784000000008639ed090000000085f58a21000000004448d889000000006bb9c915000000000671dc2c
+  33a94ec690bb7cbe5a3d4564967460996277ac61b539f6525b5fe7f92992a1c8000000000000000300000000a662000000000000a662000100000000a662000200000000a662000300000000a662000400000000a662000500000000a662000600000000a66200070000000000000000000000000000000e000000000a37f92000000000ac819f8e00000000f82f671d00000000354a3037000000003153f3de000000009a2dcd060000000046a46766000000009d44a4ad000000006f35274a000000000371953700000000a8a42560000000004b291c6600000000b7c2de0e00000000d6bf7fcf00000000182b470b00000000fb4abd6c00000000a26dd43c00000000e9cb3eb300000000ac53ff3d00000000ae693458000000009609b3a0000000008cd378a4000000008ef51ada00000000f65dd77800000000934a275900000000d5389ac8000000002e612784000000008639ed090000000085f58a21000000004448d889000000006bb9c915000000000671dc2c0000000000000000000000000000000e00000000c58f3f9d00000000377d3abb0000000014f687b8000000007f9cd8d900000000a4e0896200000000d61a1017000000008205eec600000000b625bd4c000000006f35274a000000000371953700000000a8a42560000000004b291c6600000000b7c2de0e00000000d6bf7fcf00000000182b470b00000000fb4abd6c00000000edcf535f00000000777cd08d000000006e199e6b00000000fc87f93b00000000002a7d2c0000000051a00288000000000dd4c690000000007c52d05d00000000934a275900000000d5389ac8000000002e612784000000008639ed090000000085f58a21000000004448d889000000006bb9c915000000000671dc2c0000000000000000000000000000000e00000000eac3c4d10000000033df413600000000182f953e00000000bcd17c110000000073f3f13400000000eea424400000000084cd185d000000007f3faedb000000006f35274a000000000371953700000000a8a42560000000004b291c6600000000b7c2de0e00000000d6bf7fcf00000000182b470b00000000fb4abd6c0000000017db673f00000000057e71ce000000005fef925c00000000be76fcf500000000a2288d160000000033bcde4400000000c40acedf00000000e584ded700000000934a275900000000d5389ac8000000002e612784000000008639ed090000000085f58a21000000004448d889000000006bb9c915000000000671dc2c
   ```
 - the interface digest for the list above:
-  `3e61770b2386fd4bd98507e25a15af59ac700af4289c8e2372aacd00b7a299b1`
+  `9833ac5b15e54b7229ed77e1db98919d86f660d06937b980d55c83df6fdc868e`
 
 The fullnode session's stub must reproduce all three byte-for-byte before it is trusted with
 admission: the vk digest against the pinned constant, the list and digest against the recursion
