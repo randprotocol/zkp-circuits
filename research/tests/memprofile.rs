@@ -108,15 +108,26 @@ fn run(tier: Tier, n: u32) {
     println!("tier {}: preprocessed build alone   {s:8.3} s   peak +{peak:9.1} MiB", tier.0);
 
     let m = Machine::new(FriProfile::Test);
+    // `MEMPROFILE_BUDGET=<bytes>` sets the prover cache's budget (0 is off: the prover before
+    // ZKVM-110, a build per prove), and `MEMPROFILE_PROVES=<n>` adds repeats — a tier-12 prove's
+    // run-to-run noise is about the size of the build it saves, so compare means over several.
+    if let Some(b) = std::env::var("MEMPROFILE_BUDGET").ok().and_then(|v| v.parse().ok()) {
+        m.set_prover_key_budget(b);
+        println!("tier {}: prover cache budget set to {b} bytes", tier.0);
+    }
+    let extra: usize = std::env::var("MEMPROFILE_PROVES").ok().and_then(|v| v.parse().ok()).unwrap_or(3usize).saturating_sub(3);
     let mut proofs = vec![];
-    for label in ["first prove ", "repeat prove", "third prove "] {
+    let mut repeats = vec![];
+    for label in ["first prove ", "repeat prove", "third prove "].into_iter().chain(std::iter::repeat_n("later prove ", extra)) {
         let ((proof, _), s, start, peak) = measured(|| m.prove(&p, &[], &[], Some(tier)).unwrap());
         println!(
             "tier {}: {label}                {s:8.3} s   peak +{peak:9.1} MiB over {start:8.1} MiB held = {:9.1} MiB   (preprocessed builds so far {}, cache holds {:.1} MiB by its own count)",
             tier.0, start + peak, m.prover_key_builds(), m.prover_key_bytes() as f64 / MB,
         );
+        if !proofs.is_empty() { repeats.push(s); }
         proofs.push(proof);
     }
+    println!("tier {}: mean of the {} proves after the first {:8.3} s (min {:.3}, max {:.3})", tier.0, repeats.len(), repeats.iter().sum::<f64>() / repeats.len() as f64, repeats.iter().cloned().fold(f64::MAX, f64::min), repeats.iter().cloned().fold(0.0, f64::max));
     for (label, proof) in ["first verify ", "repeat verify", "third verify "].iter().zip(&proofs) {
         let (r, s, _, peak) = measured(|| m.verify(&hc, proof));
         r.unwrap();

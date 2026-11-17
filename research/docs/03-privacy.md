@@ -247,8 +247,9 @@ both were dominated by costs the query count and fold width don't touch:
 trace commitment and, for that first verify, the uncached `verifier_key`
 recomputation. M2.3 (splitting the 2^16-row byte table into the 256-row
 range and nibble tables) is what actually moves those two rows: every
-`prove` rebuilds the preprocessed trace's Merkle commitment from scratch,
-and every *first* `verify` on a fresh `Machine` does too — shrinking that
+`prove` rebuilds the preprocessed trace's Merkle commitment from scratch
+(true until ZKVM-110's prover cache, 2026-11-17: now the first prove of a
+shape does), and every *first* `verify` on a fresh `Machine` does too — shrinking that
 commitment by two orders of magnitude cuts prove time by roughly 3-7x and
 first-verify time by roughly 100-130x, independent of `FriProfile` (see the
 caching paragraph below). Proof size drops a little further too: fewer
