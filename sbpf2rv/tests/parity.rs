@@ -1613,15 +1613,16 @@ fn a_sample_of_the_fuzz_corpus_matches_through_the_real_pipeline() {
 /// pass through), so `r5` — which the callee here never touches — comes back as the callee's last
 /// argument word, loaded from the stack and stored into the returned `sbpf_ret`.
 ///
-/// That store is where clang 21.1.6 (what `ubuntu-latest` installed from 2026-10-27, when the
-/// coverage job went red) miscompiles the translation: its RISC-V machine outliner — on, because
-/// every translated function is `minsize` — moves the stores into an `OUTLINED_FUNCTION_n` that two
-/// functions share and reaches it with `tail`, i.e. `auipc t1 ; jalr zero, t1`, while `t1` still
-/// holds `r5`'s low word. The image then returns the `auipc`'s own address in `r5`: the fuzz case
-/// stored that `r5` to its stack and hashed the stack into `r0`, which is why its eight public
-/// words matched and only `r0` differed, and differently for every layout. In the sample's
-/// programs clang 18.1.8 emits no tail call to an outlined function at all, and 23.1.1 and 23.1.4
-/// only ones where `t1` is dead; the emitted C is the same and has no undefined behaviour here.
+/// That store is where clang 21.1.6 (what `ubuntu-latest` has installed since the run of
+/// 2026-10-27, the first where this crate's coverage job failed) miscompiles the translation: its
+/// RISC-V machine outliner — on, because every translated function is `minsize` — moves the stores
+/// into an `OUTLINED_FUNCTION_n` that two functions share and reaches it with `tail`, i.e.
+/// `auipc t1 ; jalr zero, t1`, while `t1` still holds `r5`'s low word. The image then returns the
+/// `auipc`'s own address in `r5`: the fuzz case stored that `r5` to its stack and hashed the stack
+/// into `r0`, which is why its eight public words matched and only `r0` differed, and differently
+/// for every layout. The sample passes on clang 18.1.8 (no tail call to an outlined function in
+/// the one program inspected) and on 23.1.1 and 23.1.4 (such tail calls only where `t1` is dead);
+/// the emitted C is the same under all of them and has no undefined behaviour here.
 ///
 /// So this is two functions with the same tail (the outliner needs a second copy to share), one
 /// of them called through `callx` with a recognisable `r5`. With the pinned clang it passes; with
