@@ -111,7 +111,10 @@ fn run(tier: Tier, n: u32) {
     let mut proofs = vec![];
     for label in ["first prove ", "repeat prove", "third prove "] {
         let ((proof, _), s, start, peak) = measured(|| m.prove(&p, &[], &[], Some(tier)).unwrap());
-        println!("tier {}: {label}                {s:8.3} s   peak +{peak:9.1} MiB over {start:8.1} MiB held = {:9.1} MiB", tier.0, start + peak);
+        println!(
+            "tier {}: {label}                {s:8.3} s   peak +{peak:9.1} MiB over {start:8.1} MiB held = {:9.1} MiB   (preprocessed builds so far {}, cache holds {:.1} MiB by its own count)",
+            tier.0, start + peak, m.prover_key_builds(), m.prover_key_bytes() as f64 / MB,
+        );
         proofs.push(proof);
     }
     for (label, proof) in ["first verify ", "repeat verify", "third verify "].iter().zip(&proofs) {
@@ -119,7 +122,14 @@ fn run(tier: Tier, n: u32) {
         r.unwrap();
         println!("tier {}: {label}               {s:8.3} s   peak +{peak:9.1} MiB", tier.0);
     }
-    println!("tier {}: held after the run {:.1} MiB (proofs included)", tier.0, LIVE.load(Relaxed) as f64 / MB);
+    // What the prover cache really holds, by the allocator: the live heap before and after emptying it.
+    let before = LIVE.load(Relaxed);
+    let counted = m.prover_key_bytes();
+    m.set_prover_key_budget(0);
+    println!(
+        "tier {}: held after the run {:.1} MiB (proofs included); emptying the prover cache freed {:.1} MiB, which it had counted as {:.1} MiB",
+        tier.0, before as f64 / MB, before.saturating_sub(LIVE.load(Relaxed)) as f64 / MB, counted as f64 / MB,
+    );
 }
 
 #[test]
