@@ -1619,14 +1619,15 @@ fn a_sample_of_the_fuzz_corpus_matches_through_the_real_pipeline() {
 /// functions share and reaches it with `tail`, i.e. `auipc t1 ; jalr zero, t1`, while `t1` still
 /// holds `r5`'s low word. The image then returns the `auipc`'s own address in `r5`: the fuzz case
 /// stored that `r5` to its stack and hashed the stack into `r0`, which is why its eight public
-/// words matched and only `r0` differed, and differently for every layout. Clang 18.1.8 never
-/// emits such a tail call and 23.1.x emits it only where `t1` is dead; the emitted C is the same
-/// and has no undefined behaviour here.
+/// words matched and only `r0` differed, and differently for every layout. In the sample's
+/// programs clang 18.1.8 emits no tail call to an outlined function at all, and 23.1.1 and 23.1.4
+/// only ones where `t1` is dead; the emitted C is the same and has no undefined behaviour here.
 ///
 /// So this is two functions with the same tail (the outliner needs a second copy to share), one
 /// of them called through `callx` with a recognisable `r5`. With the pinned clang it passes; with
-/// clang 21.1.6 under `RAND_GUEST_CLANG_UNPINNED=1` the image builds and returns a code address —
-/// `0x13db4` on the day — where the interpreter returns `0x5555_5555`.
+/// clang 21.1.6 under `RAND_GUEST_CLANG_UNPINNED=1` the build itself is refused, by `rand-guest
+/// check`'s `TailScratch` rule (before that rule existed the image built and returned a code
+/// address — `0x13db4` on the day — where the interpreter returns `0x5555_5555`).
 #[test]
 fn a_callx_returns_r5_as_the_callee_left_it_not_the_address_of_a_tail_call() {
     use It::*;
