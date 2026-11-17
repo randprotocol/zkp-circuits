@@ -649,6 +649,33 @@ impl Traces {
         v
     }
     pub fn heights(&self) -> Vec<usize> { self.as_slice().iter().map(|m| m.height()).collect() }
+    /// Everything a `Proof` takes from a trace set besides the matrices themselves.
+    fn head(&self) -> TraceHead {
+        TraceHead { public_values: self.public_values.clone(), program_log_height: self.program_log_height, input_log_height: self.input_log_height, keccak_log_height: self.keccak_log_height, sha256_log_height: self.sha256_log_height, modq_log_height: self.modq_log_height, public_log_height: self.public_log_height, mem_log_height: self.mem_log_height }
+    }
+    /// [`Self::as_slice`], owned: the matrices in `chips()` order, for a prover that is done with
+    /// the trace set and wants to widen each in place (`tables::blind::widen_owned`).
+    fn into_matrices(self) -> Vec<RowMajorMatrix<Val>> {
+        let mut v = vec![self.program, self.cpu, self.memory, self.alu, self.range, self.nibble, self.poseidon2, self.input];
+        v.extend(self.keccak);
+        v.extend(self.sha256);
+        v.extend(self.modq);
+        v.push(self.public);
+        v
+    }
+}
+
+/// A trace set's public values and declared heights without its matrices — what the prover still
+/// needs once the matrices have been handed to the batch (`Traces::head`).
+struct TraceHead {
+    public_values: Vec<Val>,
+    program_log_height: u8,
+    input_log_height: u8,
+    keccak_log_height: u8,
+    sha256_log_height: u8,
+    modq_log_height: u8,
+    public_log_height: u8,
+    mem_log_height: u8,
 }
 
 #[derive(Debug)]
@@ -2261,7 +2288,13 @@ impl Machine {
             }
         };
         let traces = build_traces_salted_with(program, inputs, public, salt, &exec, tier, opts)?;
-        Ok((self.prove_traces(program, &traces, tier), exec))
+        // ZKVM-110: the trace set is this function's own, so it is widened in place rather than
+        // copied (`prove_traces`, which only borrows one, has to copy).
+        let head = traces.head();
+        let narrow = traces.into_matrices();
+        let blinds = crate::tables::blind::fresh(narrow.len());
+        let wide = narrow.into_iter().zip(&blinds).map(|(m, b)| crate::tables::blind::widen_owned(m, b)).collect();
+        Ok((self.prove_wide(&head, wide, tier, tier.poseidon2_height(), |cfg, instances, prover_data| prove_batch(cfg, instances, prover_data)), exec))
     }
 
     /// NOTE: the body below is duplicated, deliberately, by `prove_on` (the generic-over-config
@@ -2277,9 +2310,11 @@ impl Machine {
     ///
     /// Constraint set 7: draws fresh LogUp blinds (`tables::blind::fresh`) and appends them to the
     /// traces — `Traces` holds each table at its own width, the committed trace is five columns
-    /// wider (`Chip`'s `BaseAir::width`). The widening copies each trace once; that is a sixteenth
-    /// of the low-degree extension `prove_batch` then builds from it, so it is not worth an owning
-    /// variant.
+    /// wider (`Chip`'s `BaseAir::width`). The trace set is only borrowed here, so the widening
+    /// copies each trace once and both copies live until the proof is done — one trace set more,
+    /// 1.4 % of the proof's peak live heap (ZKVM-110, measured). `prove` and its variants own their
+    /// trace set and widen it in place instead (`tables::blind::widen_owned`); a caller of this
+    /// function that builds its own `Traces` pays the copy.
     pub fn prove_traces(&self, program: &Program, traces: &Traces, tier: Tier) -> Proof {
         let blinds = crate::tables::blind::fresh(traces.as_slice().len());
         self.prove_traces_with_blinds(program, traces, tier, &blinds)
@@ -2337,13 +2372,28 @@ impl Machine {
         poseidon2_height: usize,
         prove: impl for<'a> FnOnce(&'a Config, &'a [StarkInstance<'a, Config, Chip>], &'a ProverData<Config>) -> BatchProof<Config>,
     ) -> Proof {
+        assert_eq!(traces.as_slice().len(), blinds.len(), "one blind per instance");
+        let wide: Vec<RowMajorMatrix<Val>> = traces.as_slice().iter().zip(blinds).map(|(m, b)| crate::tables::blind::widen(m, b)).collect();
+        self.prove_wide(&traces.head(), wide, tier, poseidon2_height, prove)
+    }
+
+    /// The batch proof of a trace set already at its committed width — `wide`, one matrix per chip
+    /// in `chips()` order, each with its blind columns — and `traces`' public values and heights.
+    /// The body of [`Self::prove_traces_at`] (which copies a borrowed trace set to get `wide`) and
+    /// of `prove_salted_with` (which widens its own in place).
+    fn prove_wide(
+        &self,
+        traces: &TraceHead,
+        wide: Vec<RowMajorMatrix<Val>>,
+        tier: Tier,
+        poseidon2_height: usize,
+        prove: impl for<'a> FnOnce(&'a Config, &'a [StarkInstance<'a, Config, Chip>], &'a ProverData<Config>) -> BatchProof<Config>,
+    ) -> Proof {
         let airs = chips_at(tier, traces.keccak_log_height, traces.sha256_log_height, traces.modq_log_height, poseidon2_height);
         // M4.2 (Task 6): `keccak_log_height` picks the chip set and `keccak` supplies the
         // traces, so the two must agree — a mismatch would `zip` short and silently prove a
         // different batch than the degree bits describe.
-        assert_eq!(airs.len(), traces.as_slice().len(), "one trace per chip: the declared keccak/sha256/modq heights and Traces::keccak/sha256 disagree");
-        assert_eq!(airs.len(), blinds.len(), "one blind per instance");
-        let wide: Vec<RowMajorMatrix<Val>> = traces.as_slice().iter().zip(blinds).map(|(m, b)| crate::tables::blind::widen(m, b)).collect();
+        assert_eq!(airs.len(), wide.len(), "one trace per chip: the declared keccak/sha256/modq heights and Traces::keccak/sha256 disagree");
         let mats: Vec<&RowMajorMatrix<Val>> = wide.iter().collect();
         let instances: Vec<StarkInstance<'_, Config, Chip>> = airs.iter().zip(mats.iter()).enumerate().map(|(i, (air, trace))| StarkInstance {
             air, trace, public_values: if i == 1 { traces.public_values.clone() } else { vec![] },
@@ -2463,9 +2513,11 @@ impl Machine {
         // traces, so the two must agree — a mismatch would `zip` short and silently prove a
         // different batch than the degree bits describe.
         assert_eq!(airs.len(), traces.as_slice().len(), "one trace per chip: the declared keccak/sha256/modq heights and Traces::keccak/sha256 disagree");
-        // Constraint set 7: fresh blinds, appended — `prove_traces`' step, duplicated with it.
+        // Constraint set 7: fresh blinds, appended — `prove_salted_with`'s step, duplicated with it,
+        // in place for the same reason (ZKVM-110: this function owns its trace set).
         let blinds = crate::tables::blind::fresh(airs.len());
-        let wide: Vec<RowMajorMatrix<Val>> = traces.as_slice().iter().zip(&blinds).map(|(m, b)| crate::tables::blind::widen(m, b)).collect();
+        let (traces, narrow) = (traces.head(), traces.into_matrices());
+        let wide: Vec<RowMajorMatrix<Val>> = narrow.into_iter().zip(&blinds).map(|(m, b)| crate::tables::blind::widen_owned(m, b)).collect();
         let mats: Vec<&RowMajorMatrix<Val>> = wide.iter().collect();
         let instances: Vec<StarkInstance<'_, SC, Chip>> = airs.iter().zip(mats.iter()).enumerate().map(|(i, (air, trace))| StarkInstance {
             air, trace, public_values: if i == 1 { traces.public_values.clone() } else { vec![] },
