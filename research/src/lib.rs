@@ -8,6 +8,7 @@ pub mod machine;
 pub mod key_derivation_v2;
 pub mod poseidon2_constants;
 pub mod hash;
+pub mod program_commitment;
 pub mod keccak;
 pub mod sha256;
 pub mod sbpf;
