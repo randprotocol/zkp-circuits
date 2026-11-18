@@ -5,8 +5,9 @@ The one page for the rVM's present rows, tiers and measured figures. The phase r
 when a figure here and a figure in a phase record differ, this page is the current one. Update it
 in the same change that moves a pin.
 
-As of **constraint set 10** (ZKV-5, 2026-10-31; `10-phase5-n2-tier19.md`, "Constraint set 10"),
-checked against the sources named in each row on 2026-11-18.
+As of **constraint set 11** (ZKVM-202, 2026-11-18; `10-phase5-n2-tier19.md`, "Constraint set 11",
+which also has the constraint-set-10 figures each row replaced), checked against the sources named
+in each row and `tests/pins.json` on 2026-11-19.
 
 ## Rows and tiers
 
@@ -14,15 +15,15 @@ A tier `t` holds `2^t − 1` cpu rows.
 
 | what | rows | tier | status | where it is pinned or recorded |
 |---|---:|---:|---|---|
-| one inner verification, production profile | 235 425 | — | emulated | `10`, "Constraint set 10" |
-| production aggregate, N = 1 | 235 751 | 18 | emulated; never proved | `10`, "Constraint set 10"; `tests/aggregate.rs` (`production_n1_…`) |
-| production aggregate, N = 2 | 471 119 | 19 | emulated; never proved | same; `production_n2_aggregate_emulates_within_bounds` |
-| production aggregate, N = 3 | 706 487 | 20 | emulated; never proved | same; `production_n3_aggregate_emulates_within_bounds` |
-| test-profile aggregate, N = 1 | 88 493 | 18 | proved in the suite | `10`, "Constraint set 10" |
-| test-profile aggregate, N = 2 | 176 603 | 18 | `#[ignore]`d proof | same |
-| test-profile aggregate, N = 3 (the exit twin) | 264 713 | 19 | `#[ignore]`d proof | `tests/aggregate.rs`, `N3_ROWS` |
-| tree, production: `rv32n` leaf at L = 2 | 471 119 | 19 | emulated | the production N = 2 aggregate; 471 105 in `10` §4's table, before constraint set 10 |
-| tree, production: `rv32r` over the leaf | 254 493 (child 254 177) | 18 | emulated | `10` §4; unchanged by constraint set 10 |
+| one inner verification, production profile | 236 021 | — | emulated | `10`, "Constraint set 11"; `pins.json` `cpu_rows` |
+| production aggregate, N = 1 | 236 347 | 18 | emulated; never proved | `10`, "Constraint set 11"; `tests/aggregate.rs` (`production_n1_…`) |
+| production aggregate, N = 2 | 472 311 | 19 | emulated; never proved | same; `production_n2_aggregate_emulates_within_bounds` |
+| production aggregate, N = 3 | 708 275 | 20 | emulated; never proved | same; `production_n3_aggregate_emulates_within_bounds` |
+| test-profile aggregate, N = 1 | 88 641 | 18 | proved in the suite (pending re-run under set 11) | `10`, "Constraint set 11"; `pins.json` `aggregate_test_n1_cpu_rows` |
+| test-profile aggregate, N = 2 | 176 899 | 18 | `#[ignore]`d proof | same |
+| test-profile aggregate, N = 3 (the exit twin) | 265 157 | 19 | `#[ignore]`d proof | `tests/aggregate.rs`, `N3_ROWS` |
+| tree, production: `rv32n` leaf at L = 2 | 472 311 | 19 | emulated | `pins.json` `tree_measure`; the production N = 2 aggregate (471 119 at set 10, 471 105 in `10` §4's table) |
+| tree, production: `rv32r` over the leaf | 254 493 (child 254 177) | 18 | emulated | `10` §4; unchanged by constraint sets 10 and 11 |
 | tree, production: `rv32t_leaf` step | 508 735 | 19 | emulated | `10` §4; `tests/tree_measure.rs` |
 | tree, test profile: child / `rv32t_leaf` step | 74 605 / 149 586 | 18 | pins wait on the fixture regeneration | `tests/tree.rs` |
 
