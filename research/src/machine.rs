@@ -282,7 +282,7 @@ use crate::tables::program::{self, program_trace, ProgramAir};
 use crate::tables::range::{range_trace, RangeAir, RangeCounts};
 use crate::tables::sha256::{sha256_trace, Sha256Air, Sha256Event};
 use p3_air::{Air, AirBuilder, BaseAir, PermutationAirBuilder};
-use p3_batch_stark::{prove_batch, BatchProof, CommonData, ProverData, StarkInstance};
+use p3_batch_stark::{prove_batch, verify_batch, BatchProof, CommonData, ProverData, StarkInstance};
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use p3_lookup::InteractionBuilder;
 use p3_matrix::dense::RowMajorMatrix;
@@ -299,7 +299,12 @@ pub const TIERS: [usize; 6] = [10, 12, 14, 16, 18, 20];
 /// and cut its prover's peak heap by 29 % at tier 16 doing so; flipping this constant is the
 /// same cut for this machine and a proof-format change, so a constraint-set cut (ZKVM-111).
 /// Until then the other layout is reachable only through the `next-set` feature's
-/// `Machine::{prove_traces_with_layout, verify_with_layout}`.
+/// `Machine::{prove_traces_with_layout, verify_with_layout}`. `QuotientLayout` exists only in the
+/// vendored fork, which a package's `[patch]` gives its own builds but not a crate that depends on
+/// it (`evm2rv`, `sbpf2rv`, `rand-guest` build against crates.io's p3-batch-stark); so this and
+/// every other use of the fork's layout API is behind `next-set`, and a default build calls
+/// upstream's `verify_batch` exactly as before ZKVM-111.
+#[cfg(feature = "next-set")]
 pub const QUOTIENT_LAYOUT: p3_batch_stark::QuotientLayout = p3_batch_stark::QuotientLayout::PerChunk;
 
 // Audit COV-2 / INT-6: the private-data floor (`tables::MIN_PRIVATE_TABLE_LOG_HEIGHT`) must fit
@@ -2264,14 +2269,27 @@ impl Machine {
     /// matching-but-different program producing the same `hc`, a genuine hash collision, not
     /// a free forgery.
     pub fn verify(&self, hc: &[u32; 8], proof: &Proof) -> Result<(), VerifyError> {
-        self.verify_under(hc, proof, QUOTIENT_LAYOUT)
+        #[cfg(feature = "next-set")]
+        {
+            self.verify_under(hc, proof, QUOTIENT_LAYOUT)
+        }
+        #[cfg(not(feature = "next-set"))]
+        {
+            self.verify_under(hc, proof)
+        }
     }
 
-    /// [`Self::verify`]'s body, with the quotient layout the batch verifier lists the quotient
-    /// round under as an argument. `verify` passes [`QUOTIENT_LAYOUT`] (`PerChunk`, for which the
-    /// fork's `verify_batch_with_layout` is `verify_batch`); only the `next-set` feature's
-    /// `verify_with_layout` passes anything else (ZKVM-111).
-    fn verify_under(&self, hc: &[u32; 8], proof: &Proof, layout: p3_batch_stark::QuotientLayout) -> Result<(), VerifyError> {
+    /// [`Self::verify`]'s body. Under `next-set` it takes the quotient layout the batch verifier
+    /// lists the quotient round under: `verify` passes `QUOTIENT_LAYOUT` (`PerChunk`, for which the
+    /// fork's `verify_batch_with_layout` is `verify_batch`) and only `verify_with_layout` passes
+    /// anything else (ZKVM-111). Without the feature it calls upstream's `verify_batch`, so a crate
+    /// that depends on this one does not need the fork.
+    fn verify_under(
+        &self,
+        hc: &[u32; 8],
+        proof: &Proof,
+        #[cfg(feature = "next-set")] layout: p3_batch_stark::QuotientLayout,
+    ) -> Result<(), VerifyError> {
         check_public_values(hc, proof)?;
         // M4.2 (Task 5 review): every range check on the proof's declared shape, in one place
         // and before anything is sized from it — `check_declared_heights`' doc comment has the
@@ -2314,7 +2332,11 @@ impl Machine {
         let pv_vals: Vec<Val> = proof.public_values.iter().map(|x| Val::from_u64(*x)).collect();
         let pvs: Vec<Vec<Val>> = (0..airs.len()).map(|i| if i == 1 { pv_vals.clone() } else { vec![] }).collect();
         let common = self.verifier_key_with_modq(proof.tier, proof.program_log_height, proof.input_log_height, proof.keccak_log_height, proof.sha256_log_height, proof.modq_log_height, proof.public_log_height);
-        p3_batch_stark::verify_batch_with_layout(&self.config, &airs, &proof.batch, &pvs, &common, layout).map_err(|e| VerifyError::Batch(format!("{e:?}")))
+        #[cfg(feature = "next-set")]
+        let checked = p3_batch_stark::verify_batch_with_layout(&self.config, &airs, &proof.batch, &pvs, &common, layout);
+        #[cfg(not(feature = "next-set"))]
+        let checked = verify_batch(&self.config, &airs, &proof.batch, &pvs, &common);
+        checked.map_err(|e| VerifyError::Batch(format!("{e:?}")))
     }
 
     /// The next set's verifier for a proof whose quotient chunks were committed under `layout`
