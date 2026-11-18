@@ -87,7 +87,7 @@ solana-sbpf = { version = "=0.11.1", default-features = false }
 # This crate itself with `cheating` on, for its own tests only: the MODQ cheating suite's forge
 # hooks (`tables::modq::forge_block`, `ModqAirWithout`, `machine::build_traces_forged`, …) exist
 # only under that feature, so the library a dependent (the fullnode) builds never carries them.
-rand_zkvm = { path = ".", features = ["cheating"] }
+rand_zkvm = { path = ".", features = ["cheating", "next-set"] }
 
 [features]
 default = []
@@ -95,6 +95,11 @@ default = []
 # constraint groups switched off. Never enabled by a prover or verifier build; `research`'s own
 # tests turn it on through the self dev-dependency above.
 cheating = []
+# The next constraint set, opt-in (`docs/05-roadmap.md`). Adds entry points and modules and nothing
+# else — the live machine, its proof format and its keys are the same with and without it. Off for
+# every dependent; `research`'s own tests turn it on through the self dev-dependency above, as they
+# do `cheating`.
+next-set = []
 # The GPU backend's CPU-twin engines: same Merkle/NTT code paths, no device needed.
 reference-backend = ["dep:rand-zkvm-cuda"]
 # `cuda` and `mock-cuda` are mutually exclusive: enabling both is a hard `compile_error!` in
@@ -121,6 +126,16 @@ parallel = ["dep:p3-maybe-rayon", "p3-maybe-rayon/parallel"]
 name = "modq_cheating"
 path = "tests/modq_cheating.rs"
 required-features = ["cheating"]
+
+[[test]]
+name = "quotient_layout"
+path = "tests/quotient_layout.rs"
+required-features = ["next-set"]
+
+[[test]]
+name = "quotient_layout_heap"
+path = "tests/quotient_layout_heap.rs"
+required-features = ["next-set"]
 
 # The quotient-layout fork of p3-batch-stark (`../vendor/PROVENANCE.md`), as `recursion/` and the
 # fullnode already take it — `QuotientLayout::PerChunk`, upstream byte for byte, is what every entry
