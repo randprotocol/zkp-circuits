@@ -7,7 +7,7 @@
 
 What one EVM opcode costs the interpreter guest (`evm-core`, `evm.bin`) in zkVM cycles. What each opcode does, and its gas, is in [COMPATIBILITY.md](COMPATIBILITY.md).
 
-Measured on `guests-compiled/bin/evm.bin` with sha256 `66923a5677217b5fb76785bc52a87d11a666d575b39dbfdc8a68fbe5044e9a5f`. **Every figure moves when the image is rebuilt**; a figure here describes that image and no other.
+Measured on `guests-compiled/bin/evm.bin` with sha256 `446484a876b998f2b5cb73eecf7267e51ac941b79613784df1431af10ba499d2`. **Every figure moves when the image is rebuilt**; a figure here describes that image and no other.
 
 ## Method
 
@@ -19,7 +19,7 @@ PUSH2 dest  JUMP  |  A: JUMPDEST  snippet × 32  |  B: JUMPDEST  snippet × 32  
 
 and the image runs it twice in the emulator with the same bytes except `dest`: entering at `A`, then at `B`. The difference is 32 snippets and one `JUMPDEST`. Everything that depends on the code, the calldata or the witnesses (reading the input, the jumpdest scan, the hashes, the output) is the same in both runs and cancels. `JUMPDEST`, `PUSH1` and `POP` are measured the same way first and subtracted, so a row is the opcode alone: its dispatch, its gas charge, its stack accesses and its work.
 
-The baselines: `JUMPDEST` 36, `PUSH1` 169, `POP` 45, `PUSH2` 177, `PUSH32` 417 cycles.
+The baselines: `JUMPDEST` 39, `PUSH1` 167, `POP` 48, `PUSH2` 174, `PUSH32` 384 cycles.
 
 Arithmetic depends on its operands, so those rows have two figures: **small** (one-byte operands) and **wide** (32-byte operands). The wide operands are A = `0xfedcba9876543210` repeated four times, B = `0x0123456789abcdef` repeated four times, and M = 2^255 − 159. The first operand named is the top of the stack. Wide is not always dearer: a comparison is decided by the first limb that differs, and a shift by a whole number of limbs moves fewer bits.
 
@@ -27,68 +27,68 @@ Arithmetic depends on its operands, so those rows have two figures: **small** (o
 
 | byte | opcode | cycles (small) | cycles (wide) | operands |
 |---|---|---:|---:|---|
-| `0x01` | `ADD` | 114 | 114 | 7, 3 / wide: A, B |
-| `0x02` | `MUL` | 844 | 844 | 7, 3 / wide: A, B |
-| `0x03` | `SUB` | 126 | 126 | 7, 3 / wide: A, B |
-| `0x04` | `DIV` | 436 | 1 012 | 7, 3 / wide: A, B |
-| `0x05` | `SDIV` | 460 | 997 | 7, 3 / wide: A, B |
-| `0x06` | `MOD` | 447 | 1 023 | 7, 3 / wide: A, B |
-| `0x07` | `SMOD` | 459 | 997 | 7, 3 / wide: A, B |
-| `0x08` | `ADDMOD` | 595 | 1 136 | 7, 3, modulus 5 / wide: A, B, modulus M |
-| `0x09` | `MULMOD` | 1 796 | 7 615 | 7, 3, modulus 5 / wide: A, B, modulus M |
-| `0x0a` | `EXP` | 4 453 | 297 164 | base 3, exponent 5 / wide: base A, exponent B (249 bits) |
-| `0x0b` | `SIGNEXTEND` | 727 | 662 | byte 0 of 0x80 / wide: byte 15 of A |
-| `0x10` | `LT` | 112 | 91 | 7, 3 / wide: A, B |
-| `0x11` | `GT` | 112 | 91 | 7, 3 / wide: A, B |
-| `0x12` | `SLT` | 114 | 94 | 7, 3 / wide: A, B |
-| `0x13` | `SGT` | 114 | 91 | 7, 3 / wide: A, B |
-| `0x14` | `EQ` | 100 | 100 | 7, 3 / wide: A, B |
-| `0x15` | `ISZERO` | 99 | 99 | 7 / wide: A |
-| `0x16` | `AND` | 96 | 96 | 7, 3 / wide: A, B |
-| `0x17` | `OR` | 95 | 95 | 7, 3 / wide: A, B |
-| `0x18` | `XOR` | 96 | 96 | 7, 3 / wide: A, B |
-| `0x19` | `NOT` | 82 | 82 | 7 / wide: A |
-| `0x1a` | `BYTE` | 411 | 411 | byte 31 of 7 / wide: byte 15 of A |
+| `0x01` | `ADD` | 115 | 115 | 7, 3 / wide: A, B |
+| `0x02` | `MUL` | 845 | 845 | 7, 3 / wide: A, B |
+| `0x03` | `SUB` | 127 | 127 | 7, 3 / wide: A, B |
+| `0x04` | `DIV` | 440 | 1 016 | 7, 3 / wide: A, B |
+| `0x05` | `SDIV` | 416 | 954 | 7, 3 / wide: A, B |
+| `0x06` | `MOD` | 451 | 1 027 | 7, 3 / wide: A, B |
+| `0x07` | `SMOD` | 415 | 954 | 7, 3 / wide: A, B |
+| `0x08` | `ADDMOD` | 580 | 1 121 | 7, 3, modulus 5 / wide: A, B, modulus M |
+| `0x09` | `MULMOD` | 1 806 | 7 625 | 7, 3, modulus 5 / wide: A, B, modulus M |
+| `0x0a` | `EXP` | 4 459 | 297 167 | base 3, exponent 5 / wide: base A, exponent B (249 bits) |
+| `0x0b` | `SIGNEXTEND` | 725 | 660 | byte 0 of 0x80 / wide: byte 15 of A |
+| `0x10` | `LT` | 115 | 94 | 7, 3 / wide: A, B |
+| `0x11` | `GT` | 115 | 94 | 7, 3 / wide: A, B |
+| `0x12` | `SLT` | 117 | 97 | 7, 3 / wide: A, B |
+| `0x13` | `SGT` | 117 | 94 | 7, 3 / wide: A, B |
+| `0x14` | `EQ` | 92 | 92 | 7, 3 / wide: A, B |
+| `0x15` | `ISZERO` | 102 | 102 | 7 / wide: A |
+| `0x16` | `AND` | 97 | 97 | 7, 3 / wide: A, B |
+| `0x17` | `OR` | 96 | 96 | 7, 3 / wide: A, B |
+| `0x18` | `XOR` | 97 | 97 | 7, 3 / wide: A, B |
+| `0x19` | `NOT` | 85 | 85 | 7 / wide: A |
+| `0x1a` | `BYTE` | 413 | 413 | byte 31 of 7 / wide: byte 15 of A |
 | `0x1b` | `SHL` | 430 | 398 | 7 by 4 bits / wide: A by 100 bits |
-| `0x1c` | `SHR` | 460 | 421 | 7 by 4 bits / wide: A by 100 bits |
-| `0x1d` | `SAR` | 451 | 739 | 7 by 4 bits / wide: A by 100 bits |
-| `0x1e` | `CLZ` | 117 | 95 | 7 / wide: A |
-| `0x20` | `KECCAK256` | 2 059 | 2 962 | 32 bytes at 0 (one permutation) / wide: 200 bytes at 0 (two) |
-| `0x30` | `ADDRESS` | 67 |  |  |
-| `0x33` | `CALLER` | 68 |  |  |
-| `0x34` | `CALLVALUE` | 67 |  |  |
-| `0x35` | `CALLDATALOAD` | 835 |  | offset 0 of 64 bytes of calldata |
-| `0x36` | `CALLDATASIZE` | 62 |  |  |
-| `0x37` | `CALLDATACOPY` | 1 254 | 15 142 | 32 bytes to memory 0 from offset 0 / wide: 1 024 bytes |
-| `0x38` | `CODESIZE` | 61 |  |  |
-| `0x39` | `CODECOPY` | 1 252 | 15 140 | 32 bytes to memory 0 from offset 0 / wide: 1 024 bytes |
-| `0x3d` | `RETURNDATASIZE` | 59 |  |  |
-| `0x3e` | `RETURNDATACOPY` | 290 |  | length 0 (any other traps) |
-| `0x50` | `POP` | 45 |  | baseline: (PUSH1 POP) less PUSH1 |
+| `0x1c` | `SHR` | 461 | 422 | 7 by 4 bits / wide: A by 100 bits |
+| `0x1d` | `SAR` | 456 | 741 | 7 by 4 bits / wide: A by 100 bits |
+| `0x1e` | `CLZ` | 116 | 98 | 7 / wide: A |
+| `0x20` | `KECCAK256` | 1 542 | 2 611 | 32 bytes at 0 (one permutation) / wide: 200 bytes at 0 (two) |
+| `0x30` | `ADDRESS` | 70 |  |  |
+| `0x33` | `CALLER` | 71 |  |  |
+| `0x34` | `CALLVALUE` | 71 |  |  |
+| `0x35` | `CALLDATALOAD` | 832 |  | offset 0 of 64 bytes of calldata |
+| `0x36` | `CALLDATASIZE` | 65 |  |  |
+| `0x37` | `CALLDATACOPY` | 1 256 | 15 144 | 32 bytes to memory 0 from offset 0 / wide: 1 024 bytes |
+| `0x38` | `CODESIZE` | 64 |  |  |
+| `0x39` | `CODECOPY` | 1 254 | 15 142 | 32 bytes to memory 0 from offset 0 / wide: 1 024 bytes |
+| `0x3d` | `RETURNDATASIZE` | 62 |  |  |
+| `0x3e` | `RETURNDATACOPY` | 73 |  | length 0 (any other traps) |
+| `0x50` | `POP` | 48 |  | baseline: (PUSH1 POP) less PUSH1 |
 | `0x51` | `MLOAD` | 541 |  | offset 0 |
-| `0x52` | `MSTORE` | 621 |  | 7 at offset 0 |
-| `0x53` | `MSTORE8` | 544 |  | 7 at offset 0 |
-| `0x54` | `SLOAD` | 403 |  | slot 0, already read in this call (its witness verified) |
-| `0x55` | `SSTORE` | 4 585 |  | 7 to slot 0, already written in this call |
-| `0x56` | `JUMP` | 291 |  | to the next opcode |
+| `0x52` | `MSTORE` | 616 |  | 7 at offset 0 |
+| `0x53` | `MSTORE8` | 546 |  | 7 at offset 0 |
+| `0x54` | `SLOAD` | 152 |  | slot 0, already read in this call (its witness verified) |
+| `0x55` | `SSTORE` | 3 617 |  | 7 to slot 0, already written in this call |
+| `0x56` | `JUMP` | 292 |  | to the next opcode |
 | `0x57` | `JUMPI, taken` | 573 |  | condition 1, to the next opcode |
-| `0x57` | `JUMPI, not taken` | 548 |  | condition 0 |
-| `0x58` | `PC` | 60 |  |  |
-| `0x59` | `MSIZE` | 60 |  |  |
-| `0x5a` | `GAS` | 59 |  |  |
-| `0x5b` | `JUMPDEST` | 36 |  | baseline |
-| `0x5c` | `TLOAD` | 125 |  | key 1, an empty table |
-| `0x5d` | `TSTORE` | 603 |  | 7 to key 1, the table's only key |
-| `0x5e` | `MCOPY` | 1 246 | 2 486 | 32 bytes from 0 to 32 / wide: 1 024 bytes from 0 to 1 024 |
-| `0x5f` | `PUSH0` | 59 |  |  |
-| `0x60`–`0x7f` | `PUSH1`–`PUSH32` | 169 to 417 |  | n bytes of 0x11; 8 more for each byte |
-| `0x80`–`0x8f` | `DUP1`–`DUP16` | 107 |  |  |
-| `0x90`–`0x9f` | `SWAP1`–`SWAP16` | 107 |  |  |
-| `0xa0` | `LOG0` | 1 276 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
-| `0xa1` | `LOG1` | 1 594 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
-| `0xa2` | `LOG2` | ≈ 1 920.5 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
-| `0xa3` | `LOG3` | ≈ 2 234.3 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
-| `0xa4` | `LOG4` | 2 546 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
+| `0x57` | `JUMPI, not taken` | 326 |  | condition 0 |
+| `0x58` | `PC` | 63 |  |  |
+| `0x59` | `MSIZE` | 63 |  |  |
+| `0x5a` | `GAS` | 62 |  |  |
+| `0x5b` | `JUMPDEST` | 39 |  | baseline |
+| `0x5c` | `TLOAD` | 97 |  | key 1, an empty table |
+| `0x5d` | `TSTORE` | 117 |  | 7 to key 1, the table's only key |
+| `0x5e` | `MCOPY` | 1 249 | 2 489 | 32 bytes from 0 to 32 / wide: 1 024 bytes from 0 to 1 024 |
+| `0x5f` | `PUSH0` | 62 |  |  |
+| `0x60`–`0x7f` | `PUSH1`–`PUSH32` | 167 to 384 |  | n bytes of 0x11; 7 more for each byte |
+| `0x80`–`0x8f` | `DUP1`–`DUP16` | 109 |  |  |
+| `0x90`–`0x9f` | `SWAP1`–`SWAP16` | 108 |  |  |
+| `0xa0` | `LOG0` | ≈ 1 939.3 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
+| `0xa1` | `LOG1` | ≈ 2 258.5 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
+| `0xa2` | `LOG2` | ≈ 2 557.8 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
+| `0xa3` | `LOG3` | 2 857 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
+| `0xa4` | `LOG4` | ≈ 3 157.3 |  | no data, topics 7; 4 copies a half (8 logs is the cap), so an average: it includes hashing the topics into the public output, which goes by blocks |
 
 ## Storage: the first touch
 
@@ -96,8 +96,8 @@ The `SLOAD` and `SSTORE` rows above are for a slot the call has already touched.
 
 | | cycles |
 |---|---:|
-| `SLOAD`, the first touch of a slot | 3 339 |
-| `SSTORE`, the first touch of a slot | 7 521 |
+| `SLOAD`, the first touch of a slot | 3 491 |
+| `SSTORE`, the first touch of a slot | 6 956 |
 
 ## Not measured
 
