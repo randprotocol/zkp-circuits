@@ -164,7 +164,7 @@ Each is a fixed-size array in the guest. Exceeding one halts `OutOfBounds` (stat
 | return data (RETURN, REVERT) | 1 024 bytes |  |
 | logs in one call | 8 logs |  |
 | transient storage (TSTORE) | 16 distinct keys | keys that have been given a non-zero value; one more halts OutOfBounds |
-| storage witnesses in one call | 16 slots | the slots a call may read or write; an input with more is refused before anything runs, and a slot touched without a witness halts NoWitness |
+| storage witnesses in one call | 32 slots | the slots a call may read or write; an input with more is refused before anything runs, and a slot touched without a witness halts NoWitness |
 | code | 24 576 bytes | EIP-170's limit, as on mainnet; longer code is refused before anything runs |
 | stack | 1 024 words | the EVM's own limit, as on mainnet: StackOverflow, not OutOfBounds |
 

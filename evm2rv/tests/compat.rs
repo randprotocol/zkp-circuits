@@ -582,7 +582,7 @@ fn the_gas_rules_and_the_caps_are_what_the_table_says() {
     assert_eq!(limit("return data"), 1_024);
     assert_eq!(limit("logs"), 8);
     assert_eq!(limit("transient"), 16);
-    assert_eq!(limit("storage witnesses"), 16);
+    assert_eq!(limit("storage witnesses"), 32);
     assert_eq!(limit("code"), 24_576);
     assert_eq!(limit("stack"), 1_024);
 }
