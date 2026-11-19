@@ -142,7 +142,7 @@ call (address, caller, value, calldata, gas limit, context) and the gas used
 
 ### 5. The same eight words as the interpreter
 
-The interpreter guest (`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `fae9d774…`), on the
+The interpreter guest (`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `7862f530…` since constraint set 11, `fae9d774…` before), on the
 same input:
 
 ```
@@ -376,10 +376,16 @@ The transfer's row over time (interpreter / stage one / stage two):
 | the depth-64 storage tree (ZKVM-105) | 154 517 / 109 947 / 95 971 | 18 |
 | the harness savings (ZKVM-117) | 120 892 / 73 922 / **59 946** | **16** |
 
+> **Constraint set 11 moved every `hc`** (ZKVM-107: the Poseidon2 round constants are the Grain
+> table, and `hc` is a Poseidon2 digest of the image's words). The interpreter rows below are
+> re-measured; the translated contracts' rows (ERC-20, sha256 + ecrecover) are still set 10's
+> values — re-measuring them needs a rebuild with the pinned clang 23.1.1, and the host that made
+> the set-11 change had 23.1.4 only. Owed before a chain admits a translation by `hc`.
+
 | program | words | hc |
 |---|---:|---|
-| interpreter (`evm.bin`, layout 2) | 15 167 | `fae9d774…1f09bc0c` |
-| interpreter (`evm-v1.bin`, layout 1) | 15 111 | `7375f67a…794dca16` |
+| interpreter (`evm.bin`, layout 2) | 15 167 | `7862f530…151eeb46` (constraint set 11's Grain constants; `fae9d774…1f09bc0c` before) |
+| interpreter (`evm-v1.bin`, layout 1) | 15 111 | `6215d629…3b64bfcdcf` (`7375f67a…794dca16` before set 11) |
 | ERC-20, stage one | 12 076 | `e61dde652e7524ceb51a2c2edfc2ff25f752f8fd47a15733eb24f195017c383a` |
 | ERC-20, stage two | 7 958 | `0a08a9e4a9707a945a4a47cf57b3cd649c3a725bfda2dcba9c17cb29026f4262` |
 | sha256 + ecrecover contract, stage one | 12 451 | `d358b7db…d9676203` |

@@ -79,7 +79,7 @@ OK
 wrote <dir>/image.bin and its .sha256 (63968 words, hc d542bd6f272a33102199324bf0269c1c2ef6471fd41bfed0bedc1b85dbf44627, program id cc8ea5bf883014015d1c845dfaee0342362ec39fd45bd4bad2bea142b7a9f5d1)
 ```
 
-`hc` is the image's own digest; `program id` is the id `rand-guest` derives for the deployed
+(That `hc` and the others in this file are constraint set 10's: set 11's Grain Poseidon2 constants moved every `hc`, ZKVM-107; the translated image has to be rebuilt with the pinned clang 23.1.1 to re-measure it, which the set-11 change could not do. The interpreter `sbpf.bin` is `8287f7ef…5906d44e` since set 11, `19c82f18…8a9e` before.) `hc` is the image's own digest; `program id` is the id `rand-guest` derives for the deployed
 program. `program.c` ends with the program's two addresses and its read-only data
 (`shim::baked_c`: for this ELF 2 848 bytes, which the loader's prologue writes into memory before
 `main`; the image's whole prologue is 2 124 of its 63 968 words), so `hc` binds the whole program

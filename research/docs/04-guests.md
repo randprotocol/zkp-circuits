@@ -32,7 +32,7 @@ reuses the interpreter's ABI harness, so the input vector and the eight public o
 change. Stage two (register lifting, the default) runs the ERC-20 `transfer` in 59 946 cycles —
 **tier 16** since ZKVM-117's harness savings (`evm2rv/README.md` lists them) — against the
 interpreter's 120 892 (tier 18), at 7 958 program words against 15 167 (the committed
-`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `fae9d774…`; 95 971 against 154 517
+`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `7862f530…` since constraint set 11 (`fae9d774…` before); 95 971 against 154 517
 before those savings, 70 295 against 128 872 under layout 1's depth-32 tree, 66 235 against
 124 606 before ZKVM-103/104 put the call, the log data and the gas into the output, and 121 638
 and 18 009 for the interpreter before MCOPY/TLOAD/TSTORE/CLZ). The harness it shares
@@ -302,10 +302,12 @@ keccak table's), under 1 048 576.
 `msauth::pinned_options()`: `min_keccak_log_height = 14`, `min_modq_log_height = 16`,
 `min_mem_log_height = 20`, `gas_limit = None` (the header ceiling, so the public gas word does not
 leak `M`). Every `M <= 3` then declares program 12, input 12, keccak 14, sha256 0, modq 16,
-public 7, memory 20 and the same gas word (`proof_shape_is_the_same_for_every_m`; without the
+public 7, memory 20, poseidon2 16 (since constraint set 11, ZKVM-112) and the same gas word (`proof_shape_is_the_same_for_every_m`; without the
 floors the heights and the gas word differ per `M`, e.g. gas 387 167 / 413 887 / 447 935 at
-`M = 1 / 2 / 3`). The pinned word is `gas_max_with_modq(18, 14, 0, 16)` = **447 935** since
-constraint set 11 (436 159 through set 10; `07-gas.md`), and the run itself meters 108 056 /
+`M = 1 / 2 / 3`). The pinned word is the declared header's ceiling,
+`gas_max_declared(18, 14, 0, 16, 16)` = **355 775** since constraint set 11 (the full-height
+`gas_max_with_modq(18, 14, 0, 16)` = 447 935 with set 11's weights alone, 436 159 through set 10;
+`07-gas.md`), and the run itself meters 108 056 /
 208 621 / 308 826 gas at `M = 1 / 2 / 3` (111 217 / 216 576 / 321 575 before).
 
 Production prove at `M = 3` (peak RSS, proof bytes, wall time): **pending.** Three attempts on the 48 GB laptop were SIGKILLed at about 1300 s wall (true peak RSS 24 to 31 GB; 8 GB resident at death; no kernel memory kill logged; a detached CPU burner survived 1400 s). These were not memory kills (no kernel kill logged); re-run on a host with at least 64 GB or once the cause is found.
@@ -559,7 +561,7 @@ slots touched, one `Transfer` log.
 | | |
 |---|---|
 | contract | `guests-compiled/evm/contracts/ERC20.sol`, `solc 0.8.37`, `--optimize --optimize-runs 200 --evm-version shanghai`, 1 296 bytes of runtime bytecode (committed as hex; `contracts/SOLC.md` records the binary's sha256 and the exact command) |
-| guest program | **15 167 words** (`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `fae9d774…`) — 13 030 of text plus a 2 137-instruction data prologue (16 588 = 14 478 + 2 110 before ZKVM-117; 20 077 = 17 985 + 2 092 under layout 1, where the 32-level loops were unrolled; 19 637 = 17 598 + 2 039 before ZKVM-103/104); the rows below this one, and the digest-row count, were measured on the pre-MCOPY/TLOAD/TSTORE/CLZ image of 18 009 words: 16 370 of text plus a 1 639-instruction data prologue for 2 444 bytes of `.rodata` (the opcode dispatch's jump tables and the panic locations), and 4 503 program-digest rows |
+| guest program | **15 167 words** (`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `7862f530…` since constraint set 11 (`fae9d774…` before)) — 13 030 of text plus a 2 137-instruction data prologue (16 588 = 14 478 + 2 110 before ZKVM-117; 20 077 = 17 985 + 2 092 under layout 1, where the 32-level loops were unrolled; 19 637 = 17 598 + 2 039 before ZKVM-103/104); the rows below this one, and the digest-row count, were measured on the pre-MCOPY/TLOAD/TSTORE/CLZ image of 18 009 words: 16 370 of text plus a 1 639-instruction data prologue for 2 444 bytes of `.rodata` (the opcode dispatch's jump tables and the panic locations), and 4 503 program-digest rows |
 | input vector | 1 441 words (the bytecode, 68 bytes of calldata, the env, the eight context words, two 528-word witnesses) → 362 input-digest rows (929 and 234 with layout 1's 272-word witnesses; 921 and 232 before the context) |
 | cycles | **120 892 executed** on the committed image, 125 046 with both digest prefixes (154 517 and 159 026 before ZKVM-117's harness savings — the in-place Merkle walk, witnesses read into place, word-wise `U256` equality, the Keccak tail; 128 872 and 134 126 under layout 1's depth-32 tree; 124 606 executed before ZKVM-103/104 added the calldata hash, the log-data hash and the 82-word digest; 121 638 executed, 126 373 total, on the pre-MCOPY/TLOAD/TSTORE/CLZ image) |
 | Poseidon2 | 1 070 absorb rows (132 sponge calls: four 32-level Merkle walks, plus the leaves and the output digest), 5 805 permutations in all with the digest prefixes — on the pre-MCOPY image under layout 1. Under layout 2 the four walks are 64 levels each (260 sponge calls with the leaves) and `rand-guest run --tier 18` reports 5 831 permutations all in |
@@ -791,7 +793,7 @@ word — 0 for this call), **685 749** cycles, 143 instructions and 143 compute 
 30 SHA-256 compressions (the empty return data's digest is a constant, not a 31st),
 tier 20. The guest gained six syscalls, Solana's compute-unit costs on the meter, the
 sysvar block on the public tape and a third digest in the output's preimage — see
-"Syscalls" below — and its `hc` moved (`19c82f18…8a9e`, program id `bcda3c27…f0b2`;
+"Syscalls" below — and its `hc` moved (`19c82f18…8a9e`, program id `bcda3c27…f0b2`; `8287f7ef…5906d44e` since constraint set 11's Grain constants, program id unchanged;
 before: `059a7086…f476`, `e7d22c84…5533`), so the full node re-vendors it at a chain
 cut. The table above is kept as measured at the time.
 

@@ -267,11 +267,20 @@ neither, so tier 18 and the pinned heights (keccak 14, modq 16, memory 20) are a
 test asserts the run fits them at every `M`.
 
 What does move is the pinned gas word. `msauth` proves with `gas_limit = None`, so its public gas
-word is the header ceiling `gas_max_with_modq(18, 14, 0, 16)`, and admission pins it exactly:
+word is the header ceiling, and admission pins it exactly. With the weights alone that is
+`gas_max_with_modq(18, 14, 0, 16)`:
 
 ```
 2^18 − 1  +  3 · 2^15  +  133 · 2^14/32  +  303 · 2^16/1024
  262 143  +   98 304   +     68 096      +      19 392        =  447 935        (436 159 through set 10)
+```
+
+and since the same set also makes the poseidon2 height declared (ZKVM-112; msauth pins
+`PINNED_POSEIDON2_LOG_HEIGHT = 16`), the word msauth's proofs carry is
+`gas_max_declared(18, 14, 0, 16, 16)`, the permutation term `3 · 2^16/32 = 3 · 2^11`:
+
+```
+ 262 143  +    6 144   +     68 096      +      19 392        =  355 775
 ```
 
 The admission constant and the fee charged on that word move in the same cut: a fee keyed on the
