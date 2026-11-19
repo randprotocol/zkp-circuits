@@ -16,5 +16,5 @@
 state = stale
 recorded_leaf_cpu_rows = 104556
 recorded_at = circuits 1ed3d69, 2026-10-11 (after the MODQ cpu column)
-stale_since = circuits 7fc3a82, 2026-10-12 (phase 5 moved the leaf program: 104 556 -> 88 486 rows), and again 2620ace, 2026-10-31 (constraint set 10: 88 493 rows)
+stale_since = circuits 7fc3a82, 2026-10-12 (phase 5 moved the leaf program: 104 556 -> 88 486 rows), and again 2620ace, 2026-10-31 (constraint set 10: 88 493 rows), and again at the constraint-set-11 cut, 2026-11-19 (Grain table, declared poseidon2 height, per-instance quotient, KeyVersion::Set(11): 81 747 rows)
 stale_pins = tree.rs T_INT_TEST; pins.json tree_test.step_int_cpu_rows, step_int_tier, step_leaf_reduce_rows_per_child, step_int_reduce_rows_per_child, step_proof_bytes_max, vk_leaf_0..3, vk_t_leaf_0..3, vk_int_0..3; tests/tree-test-genesis.json

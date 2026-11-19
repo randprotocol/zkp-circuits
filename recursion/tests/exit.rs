@@ -21,7 +21,7 @@ fn accept_all(profile: FriProfile, n: usize) -> Vec<usize> {
     for p in &proofs {
         let shape = InnerShape::of(profile, p.proof.tier, p.proof.program_log_height,
             p.proof.input_log_height, p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height,
-            p.proof.mem_log_height);
+            p.proof.mem_log_height, p.proof.poseidon2_log_height);
         let key = InnerKey::of(profile, &shape);
         let vp = program.get_or_insert_with(|| verify_rv32(&shape, &key, Checkpoints::Off));
         assert_eq!(vp.shape, shape, "every fixture proof must share one shape");
@@ -144,7 +144,7 @@ fn refuse_all(profile: FriProfile, n: usize) {
     for (k, p) in proofs.iter().enumerate() {
         let shape = InnerShape::of(profile, p.proof.tier, p.proof.program_log_height,
             p.proof.input_log_height, p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height,
-            p.proof.mem_log_height);
+            p.proof.mem_log_height, p.proof.poseidon2_log_height);
         let key = InnerKey::of(profile, &shape);
         let vp = verify_rv32(&shape, &key, Checkpoints::Off);
         let (seg, _) = table[k % table.len()];
@@ -183,7 +183,7 @@ fn the_cycle_budget_per_inner_proof_is_pinned() {
     let p = common::bundle_proofs(FriProfile::Production, 1).pop().unwrap();
     let shape = InnerShape::of(FriProfile::Production, p.proof.tier, p.proof.program_log_height,
         p.proof.input_log_height, p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height,
-        p.proof.mem_log_height);
+        p.proof.mem_log_height, p.proof.poseidon2_log_height);
     let key = InnerKey::of(FriProfile::Production, &shape);
     let vp = verify_rv32(&shape, &key, Checkpoints::Off);
     let tape = WitnessTape::build(FriProfile::Production, &shape, &key, &p.proof).unwrap();
@@ -251,12 +251,20 @@ fn the_cycle_budget_per_inner_proof_is_pinned() {
                common::committed_digest(), "src/programs/verify_rv32.digest must match a rebuild");
 }
 
+/// `src/programs/verify_rv32.digest` is the production-shape program's digest, checked in-suite
+/// (constraint set 11): the shape comes from a Test-profile fixture's declared heights, which are
+/// the production proof's, so no production proof is needed to rebuild the program.
+#[test]
+fn the_committed_digest_is_the_production_shape_rebuilt_from_test_heights() {
+    assert_eq!(common::production_digest_from_test_heights(), common::committed_digest(), "src/programs/verify_rv32.digest must match a rebuild");
+}
+
 #[test]
 fn the_committed_program_digest_is_reproducible() {
     let p = common::bundle_proofs(FriProfile::Test, 1).pop().unwrap();
     let shape = InnerShape::of(FriProfile::Test, p.proof.tier, p.proof.program_log_height,
         p.proof.input_log_height, p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height,
-        p.proof.mem_log_height);
+        p.proof.mem_log_height, p.proof.poseidon2_log_height);
     let key = InnerKey::of(FriProfile::Test, &shape);
     let a = verify_rv32(&shape, &key, Checkpoints::Off);
     let b = verify_rv32(&shape, &key, Checkpoints::Off);
@@ -343,7 +351,7 @@ fn twin_the_post_cut_verifier_program_over_one_test_profile_proof_proves_and_ver
     let p = common::bundle_proofs(FriProfile::Test, 1).pop().unwrap();
     let shape = InnerShape::of(FriProfile::Test, p.proof.tier, p.proof.program_log_height,
         p.proof.input_log_height, p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height,
-        p.proof.mem_log_height);
+        p.proof.mem_log_height, p.proof.poseidon2_log_height);
     let key = InnerKey::of(FriProfile::Test, &shape);
     let vp = verify_rv32(&shape, &key, Checkpoints::Off);
     let tape = WitnessTape::build(FriProfile::Test, &shape, &key, &p.proof).unwrap();
@@ -391,7 +399,7 @@ fn exit_the_verifier_program_over_one_real_cs6_bundle_proof_proves_and_verifies_
     let p = common::bundle_proofs(FriProfile::Production, 1).pop().unwrap();
     let shape = InnerShape::of(FriProfile::Production, p.proof.tier, p.proof.program_log_height,
         p.proof.input_log_height, p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height,
-        p.proof.mem_log_height);
+        p.proof.mem_log_height, p.proof.poseidon2_log_height);
     let key = InnerKey::of(FriProfile::Production, &shape);
     let vp = verify_rv32(&shape, &key, Checkpoints::Off);
     assert_eq!(recursion::programs::digest_hex(&vp.program), common::committed_digest(),
@@ -429,7 +437,7 @@ fn a_committed_row_whose_own_slot_differs_is_refused_at_the_own_slot_step() {
     use recursion::witness::Segment;
     let p = common::bundle_proofs(FriProfile::Test, 1).pop().unwrap();
     let shape = InnerShape::of(FriProfile::Test, p.proof.tier, p.proof.program_log_height, p.proof.input_log_height,
-        p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height, p.proof.mem_log_height);
+        p.proof.keccak_log_height, p.proof.sha256_log_height, p.proof.public_log_height, p.proof.mem_log_height, p.proof.poseidon2_log_height);
     let key = InnerKey::of(FriProfile::Test, &shape);
     let r = recursion::reference::replay(FriProfile::Test, &shape, &key, &p.proof).unwrap();
     let vp = verify_rv32(&shape, &key, Checkpoints::Off);

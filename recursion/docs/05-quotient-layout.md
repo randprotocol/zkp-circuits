@@ -50,8 +50,9 @@ completion at 33.27 GB peak live** in 185.4 s.
   point of truth; `prove_traces`, `prove_on` and `verify` pass it. It is a property of the
   machine, pinned like the FRI profile, and is not carried in `Proof`.
 - `VerifierShape::quotient_layout()` (`src/shape.rs:670`): `InnerShape` (the RV32 proofs the
-  aggregate verifies) answers `PerChunk`; `RvmShape` (what the self-verifier `rv32r` verifies)
-  answers `QUOTIENT_LAYOUT`.
+  aggregate verifies) answered `PerChunk` through constraint set 10 and, since set 11, answers
+  `rand_zkvm::machine::QUOTIENT_LAYOUT` (`PerInstance`, ZKVM-111); `RvmShape` (what the
+  self-verifier `rv32r` verifies) answers `QUOTIENT_LAYOUT`.
 - The host replay (`src/reference.rs`) calls `commitments_with_opening_points_with_layout` with
   `shape.quotient_layout()`, after a new shape check: the opened instance count and each
   instance's chunk count and chunk length must be the shape's, or the proof is refused with

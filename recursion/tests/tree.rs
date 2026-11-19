@@ -102,7 +102,7 @@ fn leaves() -> &'static Leaves {
         let bundles: Vec<BundleProof> = common::bundle_proofs(P, 4).into_iter().map(|b| b.proof).collect();
         let p = &bundles[0];
         let shape = InnerShape::of(P, p.tier, p.program_log_height, p.input_log_height, p.keccak_log_height,
-            p.sha256_log_height, p.public_log_height, p.mem_log_height);
+            p.sha256_log_height, p.public_log_height, p.mem_log_height, p.poseidon2_log_height);
         let key = InnerKey::of(P, &shape);
         let inner = InnerVerifierKey { shape, key };
         let program = Arc::new(aggregate_program(&inner));

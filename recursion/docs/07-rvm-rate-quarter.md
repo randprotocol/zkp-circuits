@@ -96,9 +96,9 @@ structure (rate ¼, 16 queries, 4 bits).
   is refused by `Machine::verify` by name (`VerifyError::Batch`,
   `a_rate_eighth_proof_is_refused_by_name`), never accepted and never a panic.
 - **The blowup is the shape's.** The crate constant `LOG_BLOWUP = 3` is retired:
-  `shape::INNER_LOG_BLOWUP = 3` mirrors research's config for the inner proofs (cross-checked over
-  a real inner proof by `tests/verifier.rs`), and `VerifierShape::log_blowup()` answers 3 for
-  `InnerShape` and `RvmFri::of(profile).log_blowup` (2) for `RvmShape`. Every former reader —
+  `shape::INNER_LOG_BLOWUP` mirrors research's config for the inner proofs (3 then; since
+  constraint set 11 it is `rand_zkvm::machine::LOG_BLOWUP` = 2, cross-checked over a real inner
+  proof by `tests/verifier.rs`), and `VerifierShape::log_blowup()` answered 3 for `InnerShape` and `RvmFri::of(profile).log_blowup` (2) for `RvmShape`. Every former reader —
   the FRI schedule, `log_global_max_height`, the replay's `FriParameters` and round geometry
   (`reference.rs`), `h_of` and the reduced-opening accumulator in `programs/rv32.rs` — takes it
   from the shape it is reading; `RvmShape`'s `num_queries` (92 at Production) and

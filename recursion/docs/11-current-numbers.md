@@ -9,6 +9,15 @@ As of **constraint set 11** (ZKVM-202, 2026-11-18; `10-phase5-n2-tier19.md`, "Co
 which also has the constraint-set-10 figures each row replaced), checked against the sources named
 in each row and `tests/pins.json` on 2026-11-19.
 
+**The set-11 cut (2026-11-19: the Grain Poseidon2 table, the declared poseidon2 height, the RV32
+machine's per-instance quotient at rate ¼, `KeyVersion::Set(11)`) re-measured the test-profile
+rows below; the production rows are still the ZKVM-202 figures.** They need a production bundle
+proof to emulate over (its tape is the proof), which this cut did not make — the big-host runs in
+`research/docs/05-roadmap.md`'s set-11 summary owe them, and `pins.json`'s `cpu_rows`,
+`permutations`, `mem_accesses`, `witness_words` and `program_instrs` with them. The production
+reduce rows per inner proof (203 504, was 197 120) and `verify_rv32.digest` are rebuilt from a
+Test fixture's heights in the suite and are current.
+
 ## Rows and tiers
 
 A tier `t` holds `2^t − 1` cpu rows.
@@ -19,9 +28,9 @@ A tier `t` holds `2^t − 1` cpu rows.
 | production aggregate, N = 1 | 236 347 | 18 | emulated; never proved | `10`, "Constraint set 11"; `tests/aggregate.rs` (`production_n1_…`) |
 | production aggregate, N = 2 | 472 311 | 19 | emulated; never proved | same; `production_n2_aggregate_emulates_within_bounds` |
 | production aggregate, N = 3 | 708 275 | 20 | emulated; never proved | same; `production_n3_aggregate_emulates_within_bounds` |
-| test-profile aggregate, N = 1 | 88 641 | 18 | proved in the suite (pending re-run under set 11) | `10`, "Constraint set 11"; `pins.json` `aggregate_test_n1_cpu_rows` |
-| test-profile aggregate, N = 2 | 176 899 | 18 | `#[ignore]`d proof | same |
-| test-profile aggregate, N = 3 (the exit twin) | 265 157 | 19 | `#[ignore]`d proof | `tests/aggregate.rs`, `N3_ROWS` |
+| test-profile aggregate, N = 1 | 81 747 (88 641 before the set-11 cut) | 18 at set 10; not re-measured | emulated in the suite; the proof is `a_one_proof_aggregate_round_trips…` (not run at the cut, ~16 GB) | `pins.json` `aggregate_test_n1_cpu_rows` |
+| test-profile aggregate, N = 2 | 163 106 (176 899) | 18 at set 10 | `#[ignore]`d proof | same |
+| test-profile aggregate, N = 3 (the exit twin) | 244 465 (265 157) | 19 at set 10 | `#[ignore]`d proof | `tests/aggregate.rs`, `N3_ROWS` |
 | tree, production: `rv32n` leaf at L = 2 | 472 311 | 19 | emulated | `pins.json` `tree_measure`; the production N = 2 aggregate (471 119 at set 10, 471 105 in `10` §4's table) |
 | tree, production: `rv32r` over the leaf | 254 493 (child 254 177) | 18 | emulated | `10` §4; unchanged by constraint sets 10 and 11 |
 | tree, production: `rv32t_leaf` step | 508 735 | 19 | emulated | `10` §4; `tests/tree_measure.rs` |
@@ -36,7 +45,7 @@ tiers 20 to 23 (`03-gpu-and-self-recursion.md`'s device tables, `07`'s memory pr
 | machine | rate | queries | grinding bits | proven bits |
 |---|---|---:|---:|---:|
 | rVM (`machine::RvmFri`, production) | ¼ | 92 | 24 | 86.38 |
-| RV32 machine (`research`, `FriProfile::Production`) | ⅛ | 80 | 20 | 86.41 |
+| RV32 machine (`research`, `FriProfile::Production`) | ¼ since set 11 (⅛ through set 10) | 92 (80) | 24 (20) | 86.38 (86.41) |
 
 The derivation, what the legacy "260" is, and the zero-knowledge caveat are in one place:
 `research/docs/03-privacy.md`, "The security figure, stated once". `07-rvm-rate-quarter.md` has the
