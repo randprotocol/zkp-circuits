@@ -31,7 +31,7 @@ C over `evm-rt/` ahead of time, in a shim crate `rand-guest build` turns into an
 reuses the interpreter's ABI harness, so the input vector and the eight public output words do not
 change. Stage two (register lifting, the default) runs the ERC-20 `transfer` in 59 946 cycles —
 **tier 16** since ZKVM-117's harness savings (`evm2rv/README.md` lists them) — against the
-interpreter's 121 737 (tier 18), at 7 958 program words against 15 531 (the committed
+interpreter's 121 737 (tier 18), at 7 965 program words against 15 531 (the committed
 `evm.bin`, storage layout 2, program id `0eff0627…`, hc `3869b014…` since the block context of
 constraint set 11 (`7862f530…`, 15 167 words and 120 892 cycles before it; `fae9d774…` before
 set 11); 95 971 against 154 517

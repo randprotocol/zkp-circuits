@@ -149,7 +149,7 @@ own tier-20 proof. `sbpf2rv/README.md` has the full walkthrough
 over `evm-rt/` in a shim crate `rand-guest build` compiles, reusing `evm-core::abi`'s harness, so
 the input vector and the eight output words are the interpreter's. Stage two (register lifting,
 the default) runs the ERC-20 transfer in 59 946 cycles, **tier 16**, against the interpreter's 121 737, tier 18 (`evm.bin` 0eff0627…, hc 3869b014… since set 11's block context, fullnode #168 (7862f530…, 15 167 words and 120 892 cycles before it; fae9d774… before set 11), 15 531 words, storage layout 2; 95 971 against 154 517 before ZKVM-117's harness savings, 70 295 against 128 872 under the depth-32 tree, and 66 235 against 124 606 before ZKVM-103/104, all tier 18),
-at 7 958 program words; the three ERC-20 calls and five more vectors (a revert, out of gas three ways, the exact limit) match the
+at 7 965 program words; the three ERC-20 calls and five more vectors (a revert, out of gas three ways, the exact limit) match the
 interpreter word for word, and 10 000-case fuzz corpora (plain and opaque, both stages) show no
 divergence. The observable contract is the status, the eight words and `gas_used`, never the halt
 kind. `gas_used` is in the `Outcome` the shim returns and, since ZKVM-104, in the `EVM_OUT` preimage,

@@ -100,9 +100,9 @@ $ rand-guest/target/release/rand-guest build evm2rv/target/erc20 --max-words 655
 ...
 warning: erc20-runtime@0.1.0: evm2rv: clang Homebrew clang version 23.1.1 (/opt/homebrew/opt/llvm/bin/clang)
     Finished `release` profile [optimized] target(s) in 3.50s
-7958 words against a cap of 65535 (fits); 0 ecall(s) with a non-static a7
+7965 words against a cap of 65535 (fits); 0 ecall(s) with a non-static a7
 OK
-wrote evm2rv/target/erc20/image.bin and its .sha256 (7958 words, hc 72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8, program id d9db39056695a8f38a69a39993e33a311ff8a0e5ba7d4ba354b1fbc924a6d087)
+wrote evm2rv/target/erc20/image.bin and its .sha256 (7965 words, hc fd8dd3afdd785a991993c0f17dcca9a7c2c4b4c3bf213e2354d9aa1ffbf6e400, program id 5591baf0b5f918a40e89dcb6f2b31fec1443dd0b6cb0059a7f9753e672d550a8)
 ```
 
 `--max-words 65535` is needed: the default cap is 4 096 words. `--allow-panic` is needed too: the shim links
@@ -184,7 +184,7 @@ the eight words are identical
 | eight output words | identical | identical |
 | cycles | 59 946 | 121 737 |
 | tier | 16 | 18 |
-| program words | 7 958 | 15 531 |
+| program words | 7 965 | 15 531 |
 
 `tests/parity.rs` runs this and seven more vectors under both stages, and also checks `gas_used`
 and the halt through a second build that reports them.
@@ -194,10 +194,10 @@ and the halt through a second build that reports them.
 ```
 $ rand-guest/target/release/rand-guest info evm2rv/target/erc20/image.bin
 form: image container
-text 7306 words at 0x10000; data 494 words (252 non-zero) at 0x17228; prologue 652 words; program 7958 words from base_pc 0xf5d0
-hc 72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8
-program id d9db39056695a8f38a69a39993e33a311ff8a0e5ba7d4ba354b1fbc924a6d087
-7958 words against a cap of 4096: does not fit
+text …; data …; prologue … words; program 7965 words from base_pc …
+hc fd8dd3afdd785a991993c0f17dcca9a7c2c4b4c3bf213e2354d9aa1ffbf6e400
+program id 5591baf0b5f918a40e89dcb6f2b31fec1443dd0b6cb0059a7f9753e672d550a8
+7965 words against a cap of 4096: does not fit
 ```
 
 The fullnode wallet deploys an image with:
@@ -207,7 +207,7 @@ rand program deploy evm2rv/target/erc20/image.bin
 ```
 
 It prints the program id, the word count and `hc`, then checks the chain's program cap before it
-proves anything. The image is 7 958 words. Chain 12 runs the default cap of 4 096 words, so this
+proves anything. The image is 7 965 words. Chain 12 runs the default cap of 4 096 words, so this
 deploy is refused there. It needs a chain whose genesis sets `max_program_words` high enough, for
 example `rand-node genesis ... --max-program-words 65535` (fullnode `docs/cli.md`). The cap is part
 of the genesis hash, so it cannot be raised on an existing chain.
@@ -406,17 +406,18 @@ The transfer's row over time (interpreter / stage one / stage two):
 | the block context (set 11, fullnode #168; interpreter only) | 121 737 / — / — | 16 |
 
 > **Constraint set 11 moved every `hc`** (ZKVM-107: the Poseidon2 round constants are the Grain
-> table, and `hc` is a Poseidon2 digest of the image's words). The interpreter rows below are
-> re-measured; the translated contracts' rows (ERC-20, sha256 + ecrecover) are still set 10's
-> values — re-measuring them needs a rebuild with the pinned clang 23.1.1, and the host that made
-> the set-11 change had 23.1.4 only. Owed before a chain admits a translation by `hc`.
+> table, and `hc` is a Poseidon2 digest of the image's words), and set 11's block context
+> (fullnode #168) moved them again. The interpreter rows and the ERC-20 rows below are the block
+> context's (the ERC-20's from CI's clang-23.1.1 job, which is what `tests/parity.rs` pins; the
+> text/data/prologue split in step 6 was not re-measured); the sha256 + ecrecover rows are still
+> set 10's values — owed, with the pinned clang, before a chain admits that translation by `hc`.
 
 | program | words | hc |
 |---|---:|---|
 | interpreter (`evm.bin`, layout 2) | 15 531 | `3869b014…8920720d` (set 11's block context; `7862f530…151eeb46`, 15 167 words, with set 11's Grain constants before it; `fae9d774…1f09bc0c` before set 11) |
 | interpreter (`evm-v1.bin`, layout 1) | 15 474 | `040c01c8…f41193454` (the block context; `6215d629…3b64bfcdcf`, 15 111 words, before it; `7375f67a…794dca16` before set 11) |
-| ERC-20, stage one | 12 076 | `434cc062420fdaddef05777945aa0dd7711d8900675aec7d83b4a3034ba965f6` |
-| ERC-20, stage two | 7 958 | `72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8` |
+| ERC-20, stage one | 12 083 | `043fb8c5922612352712b4e123c1a14f1def4c8c963a4b90bacc92bdd0c743e3` (`434cc062…65f6`, 12 076 words, before the block context) |
+| ERC-20, stage two | 7 965 | `fd8dd3afdd785a991993c0f17dcca9a7c2c4b4c3bf213e2354d9aa1ffbf6e400` (`72ce1c04…77b8`, 7 958 words, before it) |
 | sha256 + ecrecover contract, stage one | 12 451 | `d358b7db…d9676203` |
 | sha256 + ecrecover contract, stage two | 12 223 | `666bfc23…a722154f` |
 
