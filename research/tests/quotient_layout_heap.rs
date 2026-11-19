@@ -1,9 +1,11 @@
-//! Peak live heap of one RV32 proof under each quotient layout (monorepo issue 64, ZKVM-111).
+//! Peak live heap of one RV32 proof under each quotient layout (monorepo issue 64, ZKVM-111), at
+//! the live `FriProfile::Production` (rate 1/4 since constraint set 11; `PerInstance` is the live
+//! layout, `PerChunk` the one it replaced).
 //! A counting global allocator, so its own test binary; every test is `#[ignore]`d and meant to
 //! be run one per process:
 //!
 //! ```sh
-//! for l in per_chunk per_instance; do for t in 14 16; do
+//! for l in per_chunk per_instance; do for t in 12 14; do
 //!   cargo test --release --test quotient_layout_heap tier${t}_${l} -- --ignored --nocapture --exact
 //! done; done
 //! ```
@@ -61,10 +63,7 @@ unsafe impl GlobalAlloc for Counting {
 static ALLOC: Counting = Counting;
 
 fn measure(tier: Tier, layout: QuotientLayout) {
-    measure_at(FriProfile::Production, tier, layout)
-}
-
-fn measure_at(profile: FriProfile, tier: Tier, layout: QuotientLayout) {
+    let profile = FriProfile::Production;
     // A production-size profile: the query count does not size the LDEs, but it does size the
     // openings, so the proof bytes printed are the production ones.
     let m = Machine::new(profile);
@@ -105,27 +104,10 @@ fn tier14_per_chunk() { measure(Tier(14), PerChunk) }
 fn tier14_per_instance() { measure(Tier(14), PerInstance) }
 #[test]
 #[ignore = "measurement, one per process (several GB)"]
-fn tier16_per_chunk() { measure(Tier(16), PerChunk) }
-#[test]
-#[ignore = "measurement, one per process (several GB)"]
 fn tier16_per_instance() { measure(Tier(16), PerInstance) }
-
-// Rate 1/4 (`FriProfile::Quarter`: blowup 4, 92 queries, 24 grinding bits), the opt-in profile.
+/// The issue's acceptance run (ZKVM-111 item 6): a tier-18 proof at the live profile and layout.
+/// Projected at about 38 GB of live heap from the tier-14 and tier-16 figures
+/// (`docs/05-roadmap.md`); not run from an agent session.
 #[test]
-#[ignore = "measurement, one per process"]
-fn quarter_tier12_per_instance() { measure_at(FriProfile::Quarter, Tier(12), PerInstance) }
-#[test]
-#[ignore = "measurement, one per process"]
-fn quarter_tier14_per_chunk() { measure_at(FriProfile::Quarter, Tier(14), PerChunk) }
-#[test]
-#[ignore = "measurement, one per process"]
-fn quarter_tier14_per_instance() { measure_at(FriProfile::Quarter, Tier(14), PerInstance) }
-#[test]
-#[ignore = "measurement, one per process (several GB)"]
-fn quarter_tier16_per_instance() { measure_at(FriProfile::Quarter, Tier(16), PerInstance) }
-/// The issue's acceptance run: a tier-18 proof on a 48 GB machine. Not run by the author of
-/// this harness (past its memory allowance on a shared machine); the projection from the
-/// tier-14 and tier-16 figures is in `docs/05-roadmap.md`.
-#[test]
-#[ignore = "measurement, one per process; tier 18, tens of GB — run from a plain terminal"]
-fn quarter_tier18_per_instance() { measure_at(FriProfile::Quarter, Tier(18), PerInstance) }
+#[ignore = "measurement, one per process; tier 18, tens of GB — run from a plain terminal on a big host"]
+fn tier18_per_instance() { measure(Tier(18), PerInstance) }

@@ -2134,9 +2134,13 @@ fn a_nonzero_keccak_height_below_one_block_is_rejected_before_any_verifier_key_i
     // the tampered header still admits: `gas_max(Tier(10), 3, 0)` (= the hash-free ceiling, 1 279;
     // a 3 is below one block and buys no keccak weight). The height is then the only lie, and the
     // `KeccakHeight` refusal below is what names it.
+    // Constraint set 11: the poseidon2 table is pinned at the full height, whose ceiling that is
+    // (the default would declare 2^8, and the tampered header's ceiling would then fall below the
+    // limit, so `GasLimit` rather than `KeccakHeight` would name the lie).
     let limit = rand_zkvm::gas::gas_max(Tier(10), 3, 0);
     let e = execute(&p, &[], &[], 10_000).unwrap();
-    let t = build_traces_salted(&p, &[], &[], [0; 4], &e, Tier(10), limit).unwrap();
+    let opts = rand_zkvm::machine::ProveOptions { gas_limit: Some(limit), poseidon2_log_height: Some(Tier(10).max_poseidon2_log_height()), ..Default::default() };
+    let t = build_traces_salted_with(&p, &[], &[], [0; 4], &e, Tier(10), opts).unwrap();
     let mut proof = prover.prove_traces(&p, &t, Tier(10));
     assert!(prover.verify(&p.digest(), &proof).is_ok(), "the untampered proof is honest at this limit");
     assert_eq!(proof.keccak_log_height, 7, "one block, floored at 128 rows (COV-2 / INT-6)");
@@ -2147,7 +2151,8 @@ fn a_nonzero_keccak_height_below_one_block_is_rejected_before_any_verifier_key_i
     let last = proof.batch.degree_bits.len() - 2;
     proof.batch.degree_bits[last] = 3 + 1;
     let verifier = Machine::new(FriProfile::Test);
-    assert!(matches!(verifier.verify(&p.digest(), &proof), Err(VerifyError::KeccakHeight)));
+    let got = verifier.verify(&p.digest(), &proof);
+    assert!(matches!(got, Err(VerifyError::KeccakHeight)), "{got:?}");
     assert_eq!(verifier.cached_keys(), 0, "the range check must precede the verifier key");
 }
 
@@ -3616,4 +3621,83 @@ fn a_first_row_gas_of_zero_is_refused() {
     let (m, p, mut t) = setup();
     assert_eq!(underpay_gas_from(&mut t, 0, 1), vec![(0, 1)], "only the first-row GAS boundary breaks");
     assert!(rejects(|| m.verify(&p.digest(), &m.prove_traces(&p, &t, Tier(10)))));
+}
+
+// ─────────── constraint set 11 (ZKVM-112): the declared poseidon2 height ───────────
+
+/// 64 words through `POSEIDON2` at tier 12: more permutations than the floor height holds, so the
+/// honest declared height is above the smallest admitted one.
+fn setup_poseidon2_tier12() -> (Machine, rand_zkvm::isa::Program, Traces) {
+    let m = Machine::new(FriProfile::Test);
+    let msg: Vec<u32> = (0..64).collect();
+    let p = guests::poseidon2_demo(&msg);
+    let e = execute(&p, &[], &[], Tier(12).max_cycles()).unwrap();
+    let t = build_traces_salted_with(&p, &[], &[], [0u32; 4], &e, Tier(12), rand_zkvm::machine::ProveOptions::default()).unwrap();
+    (m, p, t)
+}
+
+/// A poseidon2 table cut to a shorter admitted height than the run needs, declared at that height
+/// (so the header, the chip set and the degree bits all agree with it): the real blocks that no
+/// longer fit are gone, the cpu table's `POSEIDON2` messages for them have no receiver, and the bus
+/// does not balance. The verifier needs no lower bound on the declared height for this.
+#[test]
+fn a_poseidon2_table_too_short_for_the_run_is_rejected() {
+    let (m, p, mut t) = setup_poseidon2_tier12();
+    let honest = t.poseidon2_log_height;
+    let lower = honest - rand_zkvm::machine::POSEIDON2_HEIGHT_STEP;
+    assert!(lower >= 8, "the run must need more than the floor");
+    let w = poseidon2::col::WIDTH;
+    let real_blocks = (0..t.poseidon2.height() / poseidon2::BLOCK).filter(|b| t.poseidon2.values[b * poseidon2::BLOCK * w + poseidon2::col::IS_REAL] == F::ONE).count();
+    assert!(real_blocks * poseidon2::BLOCK > 1 << lower, "the cut drops real blocks");
+    t.poseidon2.values.truncate((1usize << lower) * w);
+    t.poseidon2_log_height = lower;
+    assert!(rejects(|| { let pr = m.prove_traces(&p, &t, Tier(12)); m.verify(&p.digest(), &pr) }));
+}
+
+/// The same cut, but keeping the real blocks and dropping the cpu rows' demand instead is not
+/// possible without changing the cpu table; what a prover *can* do is keep every real block and
+/// declare a taller table than it needs — which is honest padding and verifies.
+#[test]
+fn a_poseidon2_table_taller_than_the_run_needs_verifies() {
+    let (m, p, t0) = setup_poseidon2_tier12();
+    let e = execute(&p, &[], &[], Tier(12).max_cycles()).unwrap();
+    let opts = rand_zkvm::machine::ProveOptions { poseidon2_log_height: Some(Tier(12).max_poseidon2_log_height()), ..Default::default() };
+    let t = build_traces_salted_with(&p, &[], &[], [0u32; 4], &e, Tier(12), opts).unwrap();
+    assert!(t.poseidon2_log_height > t0.poseidon2_log_height);
+    let pr = m.prove_traces(&p, &t, Tier(12));
+    m.verify(&p.digest(), &pr).unwrap();
+}
+
+/// A padding block given a non-zero `MULT` at a declared short height is refused, as at the full
+/// height (`bumping_poseidon2_mult_on_an_idle_row_is_rejected`): the shorter table changes which
+/// blocks exist, not what an idle block may claim.
+#[test]
+fn bumping_poseidon2_mult_on_an_idle_row_at_a_short_height_is_rejected() {
+    // `setup()` passes the full-height gas ceiling, which raises the declared height to `t + 2`;
+    // the default options declare the smallest admitted height instead.
+    let m = Machine::new(FriProfile::Test);
+    let p = guests::fib(10);
+    let e = execute(&p, &[], &[], 10_000).unwrap();
+    let mut t = build_traces_salted_with(&p, &[], &[], [0u32; 4], &e, Tier(10), rand_zkvm::machine::ProveOptions::default()).unwrap();
+    assert!(t.poseidon2_log_height < Tier(10).max_poseidon2_log_height(), "fib(10) declares a short table");
+    let w = poseidon2::col::WIDTH;
+    let idle_block = (0..t.poseidon2.height() / poseidon2::BLOCK)
+        .find(|b| t.poseidon2.values[b * poseidon2::BLOCK * w + poseidon2::col::IS_REAL] == F::ZERO)
+        .expect("an idle block");
+    t.poseidon2.values[(idle_block * poseidon2::BLOCK + 30) * w + poseidon2::col::MULT] = F::ONE;
+    assert!(rejects(|| { let pr = m.prove_traces(&p, &t, Tier(10)); m.verify(&p.digest(), &pr) }));
+}
+
+/// A header relabelled to another admitted poseidon2 height, with the degree bits edited to
+/// match, gets as far as the batch verifier and fails there: the openings are for a table of the
+/// honest height.
+#[test]
+fn a_proof_relabelled_to_another_admitted_poseidon2_height_is_rejected() {
+    let (m, p, t) = setup();
+    let mut pr = m.prove_traces(&p, &t, Tier(10));
+    m.verify(&p.digest(), &pr).unwrap();
+    let other = Tier(10).admitted_poseidon2_log_heights().into_iter().find(|h| *h != pr.poseidon2_log_height).unwrap();
+    pr.poseidon2_log_height = other;
+    pr.batch.degree_bits[6] = other as usize + 1;
+    assert!(matches!(m.verify(&p.digest(), &pr), Err(rand_zkvm::machine::VerifyError::Batch(_) | rand_zkvm::machine::VerifyError::GasLimit)));
 }

@@ -145,8 +145,13 @@ fn keccak_demo_proves_and_verifies_at_tier_10() {
 /// integrated `feat/cs7` tree (314 919 / 315 239 / 315 847 / 316 167 / 317 191): the LogUp blind's
 /// five columns and bus pair on every instance, the `2^7` floor on the program, input and public
 /// tables, and ZKM-1's four byte limbs on the input and public tables all widen or lengthen what
-/// every FRI query opens. `SIZE_BAND_PCT` is the tolerance around the current figure.
-const TIER_10_TEST_PROFILE_BYTES: usize = 315_847;
+/// every FRI query opens. Constraint set 11 shrank it by ~23% to **243 027**, the middle of
+/// three on `feat/cs11-integration` (242 451 / 243 027 / 243 347): the quotient committed one matrix per instance
+/// instead of one per chunk (one Merkle path per instance per query, not one per chunk), the
+/// poseidon2 table declared at `2^8` instead of `2^12`, and rate 1/4 (a FRI query's paths one level
+/// shorter) — at the same 16 Test-profile queries. `SIZE_BAND_PCT` is the tolerance around the
+/// current figure.
+const TIER_10_TEST_PROFILE_BYTES: usize = 243_027;
 
 /// Tolerance, in percent, on the size assertion in `a_keccak_free_proof_carries_no_keccak_table`.
 ///
@@ -473,18 +478,21 @@ fn verifier_key_is_cached_after_first_verify() {
     // cache separately and hand back two different keys.
     assert_eq!(proof.keccak_log_height, 0, "fib is keccak-free");
     assert_eq!(proof.sha256_log_height, 0, "and sha256-free");
-    let (t, plh, ilh, plub) = (proof.tier, proof.program_log_height, proof.input_log_height, proof.public_log_height);
-    let bare = m.verifier_key(t, plh, ilh, 0, 0, plub);
+    // Constraint set 11: the key is the proof's whole declared shape, the poseidon2 height with
+    // it (`VerifierKeyShape::of_proof`); the four variants below differ only in the hash tables.
+    let s = rand_zkvm::machine::VerifierKeyShape::of_proof(&proof);
+    let at = |klh: u8, slh: u8| m.verifier_key_for(rand_zkvm::machine::VerifierKeyShape { keccak_log_height: klh, sha256_log_height: slh, ..s });
+    let bare = at(0, 0);
     assert_eq!(m.cached_keys(), 1, "the hash-table-free key is the one `verify` already cached");
-    let with_keccak = m.verifier_key(t, plh, ilh, 5, 0, plub);
+    let with_keccak = at(5, 0);
     assert_eq!(m.cached_keys(), 2, "`keccak_log_height = 5` is a different cache key from `0`");
     assert!(!std::sync::Arc::ptr_eq(&bare, &with_keccak));
     // M4.4: `sha256_log_height` is the key's fifth component, and independent of the fourth —
     // the four combinations of "declares a keccak table" x "declares a sha256 table" are four
     // different chip sets and therefore four different `CommonData`s.
-    let with_sha256 = m.verifier_key(t, plh, ilh, 0, 6, plub);
+    let with_sha256 = at(0, 6);
     assert_eq!(m.cached_keys(), 3, "`sha256_log_height = 6` is a different cache key again");
-    let with_both = m.verifier_key(t, plh, ilh, 5, 6, plub);
+    let with_both = at(5, 6);
     assert_eq!(m.cached_keys(), 4, "and both together is a fourth");
     assert!(!std::sync::Arc::ptr_eq(&with_keccak, &with_sha256));
     assert_eq!(bare.lookups.len(), 9, "nine instances");

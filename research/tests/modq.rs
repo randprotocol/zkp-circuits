@@ -475,7 +475,7 @@ mod machine {
     fn an_out_of_range_modq_height_is_rejected() {
         use rand_zkvm::machine::{check_declared_heights_with_modq, VerifyError};
         use rand_zkvm::tables::modq::{MAX_LOG_HEIGHT, MIN_LOG_HEIGHT};
-        let c = |t: usize, mlh: u8| check_declared_heights_with_modq(Tier(t), 7, 7, 0, 0, mlh, 7, (t + 2) as u8);
+        let c = |t: usize, mlh: u8| check_declared_heights_with_modq(Tier(t), 7, 7, 0, 0, mlh, 7, (t + 2) as u8, (t + 2) as u8);
         for t in [10, 20] {
             assert_eq!(c(t, 0), Ok(()), "0 is no modq table");
             assert_eq!(c(t, MIN_LOG_HEIGHT), Ok(()));
