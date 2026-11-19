@@ -62,7 +62,7 @@ fn bundles(k0: usize, n: usize) -> Vec<Proof> {
 
 fn inner(p: &Proof) -> InnerVerifierKey {
     let shape = InnerShape::of(P, p.tier, p.program_log_height, p.input_log_height, p.keccak_log_height,
-        p.sha256_log_height, p.public_log_height, p.mem_log_height);
+        p.sha256_log_height, p.public_log_height, p.mem_log_height, p.poseidon2_log_height);
     let key = InnerKey::of(P, &shape);
     InnerVerifierKey { shape, key }
 }

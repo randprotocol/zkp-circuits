@@ -4,10 +4,11 @@
 //! appendix F) and as the Poseidon2 reference script uses it (`poseidon2_rust_params.sage` in
 //! HorizenLabs/poseidon2: the same generator, drawing `R_F * t + R_P` elements).
 //!
-//! Nothing in the current constraint set calls this. It derives the *candidate* table in
-//! [`crate::poseidon2_constants_next`] (monorepo issue 60, ZKVM-107), and that module's tests
-//! re-run it and compare. `tools/poseidon2_grain/grain.py` is a second implementation in
-//! standard-library Python, for re-deriving the table without building this crate.
+//! Nothing hashes through this: it derives the committed table in
+//! [`crate::poseidon2_constants`] (live since constraint set 11, monorepo issue 60, ZKVM-107),
+//! and the tests below re-run it and compare. `tools/poseidon2_grain/grain.py` is a second
+//! implementation in standard-library Python, for re-deriving the table without building this
+//! crate.
 //!
 //! The procedure, in full — there is no seed and no free parameter beyond the six numbers that
 //! describe the permutation itself:
@@ -177,5 +178,40 @@ mod tests {
         all.sort_unstable();
         all.dedup();
         assert_eq!(all.len(), 86);
+    }
+
+    /// The committed table (`poseidon2_constants`, the one every hash reads) is this
+    /// derivation, all 86 values, regenerated here. (It lives here rather than in
+    /// `poseidon2_constants.rs` because that file is also compiled into `rand-zkvm-cuda` by
+    /// `#[path]` and may name no `crate::` path.)
+    #[test]
+    fn the_table_is_the_grain_derivation() {
+        use crate::poseidon2_constants::{INITIAL, INTERNAL, TERMINAL};
+        let (initial, internal, terminal) = goldilocks_width_8();
+        assert_eq!(initial, INITIAL, "initial rows");
+        assert_eq!(internal, INTERNAL, "internal scalars");
+        assert_eq!(terminal, TERMINAL, "terminal rows");
+    }
+
+    /// The `poseidon2` chip's own arithmetic (`mds_light`, `internal_matmul`, `cube` — what the
+    /// AIR constrains row by row), handed the derived constants, computes the permutation every
+    /// hash uses: the switch to this table (ZKVM-107) changed preprocessed constants, not
+    /// constraints.
+    #[test]
+    fn the_chips_arithmetic_computes_the_permutation() {
+        use crate::tables::poseidon2::{permute_scalar_with, RoundConstants};
+        use p3_goldilocks::Goldilocks;
+        use p3_symmetric::Permutation;
+        use rand::distr::StandardUniform;
+        use rand::rngs::StdRng;
+        use rand::{RngExt, SeedableRng};
+        let (initial, internal, terminal) = goldilocks_width_8();
+        let rc = RoundConstants { initial: initial.map(Goldilocks::new_array), internal: Goldilocks::new_array(internal), terminal: terminal.map(Goldilocks::new_array) };
+        let perm = crate::poseidon2_constants::permutation();
+        let mut rng = StdRng::seed_from_u64(0x60);
+        for i in 0..2_000 {
+            let x: [Goldilocks; 8] = core::array::from_fn(|_| rng.sample(StandardUniform));
+            assert_eq!(permute_scalar_with(&rc, x), perm.permute(x), "state {i}");
+        }
     }
 }

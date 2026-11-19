@@ -84,6 +84,9 @@ sha2 = { version = "=0.10.9", features = ["compress"] }
 # drops the crate's default `jit` feature, which is x86_64-only and irrelevant here: what is
 # compared is interpreter against interpreter.
 solana-sbpf = { version = "=0.11.1", default-features = false }
+# The proven-security model `tests/security.rs` checks the rate-1/4 profile against (constraint set
+# 11, ZKVM-111), as `recursion/` does for the rVM — host tests only.
+p3-security = "=0.7.0"
 # This crate itself with `cheating` on, for its own tests only: the MODQ cheating suite's forge
 # hooks (`tables::modq::forge_block`, `ModqAirWithout`, `machine::build_traces_forged`, …) exist
 # only under that feature, so the library a dependent (the fullnode) builds never carries them.
@@ -95,10 +98,12 @@ default = []
 # constraint groups switched off. Never enabled by a prover or verifier build; `research`'s own
 # tests turn it on through the self dev-dependency above.
 cheating = []
-# The next constraint set, opt-in (`docs/05-roadmap.md`). Adds entry points and modules and nothing
-# else — the live machine, its proof format and its keys are the same with and without it. Off for
-# every dependent; `research`'s own tests turn it on through the self dev-dependency above, as they
-# do `cheating`.
+# The next constraint set's prototypes, opt-in (`docs/05-roadmap.md`). Since constraint set 11 took
+# the poseidon2 height (ZKVM-112) and the quotient layout (ZKVM-111) live, it carries one thing: the
+# 256-bit modmul chip prototype (`tables::mulmod256`, ZKVM-115), which no machine includes. Adds a
+# module and nothing else — the live machine, its proof format and its keys are the same with and
+# without it. Off for every dependent; `research`'s own tests turn it on through the self
+# dev-dependency above, as they do `cheating`.
 next-set = []
 # The GPU backend's CPU-twin engines: same Merkle/NTT code paths, no device needed.
 reference-backend = ["dep:rand-zkvm-cuda"]
@@ -119,11 +124,6 @@ mock-cuda = ["dep:rand-zkvm-cuda", "rand-zkvm-cuda/mock-driver"]
 # scheduling. Opt-in because a default would switch rayon on in every crate that depends on this one.
 parallel = ["dep:p3-maybe-rayon", "p3-maybe-rayon/parallel"]
 
-[[test]]
-name = "next_set"
-path = "tests/next_set.rs"
-required-features = ["next-set"]
-
 # `required-features` lets a consumer that builds this test without the `cheating` feature skip the
 # target instead of failing (`cheating.rs`, vendored by the fullnode, needs no feature); inside research/ the self
 # dev-dependency always enables it. Every other test target stays implicit (auto-discovered).
@@ -132,24 +132,15 @@ name = "modq_cheating"
 path = "tests/modq_cheating.rs"
 required-features = ["cheating"]
 
-[[test]]
-name = "quotient_layout"
-path = "tests/quotient_layout.rs"
-required-features = ["next-set"]
-
-[[test]]
-name = "quotient_layout_heap"
-path = "tests/quotient_layout_heap.rs"
-required-features = ["next-set"]
-
 # The quotient-layout fork of p3-batch-stark (`../vendor/PROVENANCE.md`), as `recursion/` and the
-# fullnode already take it — `QuotientLayout::PerChunk`, upstream byte for byte, is what every entry
-# point this crate calls gets, so no proof or key changes. Taken here since 2026-10-15 (audit CS9-2)
-# for its `SelfCheck` switch: the fork's `prove_batch_with_layout_and_self_check(.., SelfCheck::Skip)`
-# lets the cheating suite prove a forged trace in a debug build without the prover's own
-# `debug_assertions` self-check panicking first, so the *verifier's* typed error is what a forgery test
-# sees. Only `Machine::prove_traces_without_self_check` (`cheating` feature) calls it; every honest
-# path stays on `prove_batch`, which enforces the self-check exactly as crates.io's crate does.
+# fullnode already take it. Constraint set 11 (ZKVM-111) proves and verifies every proof under its
+# `QuotientLayout::PerInstance` (`machine::QUOTIENT_LAYOUT`), which crates.io's 0.7.0 does not have —
+# so this patch is load-bearing, and every crate that builds this one must carry the same `[patch]`
+# (a `[patch]` applies only to the package root that declares it): `evm2rv`, `sbpf2rv`,
+# `rand-guest`, `recursion`, and the fullnode. Also used since 2026-10-15 (audit CS9-2) for its
+# `SelfCheck` switch: `Machine::prove_traces_without_self_check` (`cheating` feature) proves a forged
+# trace in a debug build without the prover's own self-check panicking first, so the *verifier's*
+# typed error is what a forgery test sees. Every honest path enforces the self-check.
 [patch.crates-io]
 p3-batch-stark = { path = "../vendor/p3-batch-stark" }
 # The hiding-RNG lock patch (`../vendor/PROVENANCE.md`, upstream Plonky3 #2363), as `recursion/` takes

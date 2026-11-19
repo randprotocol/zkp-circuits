@@ -102,7 +102,7 @@ warning: erc20-runtime@0.1.0: evm2rv: clang Homebrew clang version 23.1.1 (/opt/
     Finished `release` profile [optimized] target(s) in 3.50s
 7958 words against a cap of 65535 (fits); 0 ecall(s) with a non-static a7
 OK
-wrote evm2rv/target/erc20/image.bin and its .sha256 (7958 words, hc 0a08a9e4a9707a945a4a47cf57b3cd649c3a725bfda2dcba9c17cb29026f4262, program id d9db39056695a8f38a69a39993e33a311ff8a0e5ba7d4ba354b1fbc924a6d087)
+wrote evm2rv/target/erc20/image.bin and its .sha256 (7958 words, hc 72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8, program id d9db39056695a8f38a69a39993e33a311ff8a0e5ba7d4ba354b1fbc924a6d087)
 ```
 
 `--max-words 65535` is needed: the default cap is 4 096 words. `--allow-panic` is needed too: the shim links
@@ -142,7 +142,7 @@ call (address, caller, value, calldata, gas limit, context) and the gas used
 
 ### 5. The same eight words as the interpreter
 
-The interpreter guest (`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `fae9d774…`), on the
+The interpreter guest (`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `7862f530…` since constraint set 11, `fae9d774…` before), on the
 same input:
 
 ```
@@ -195,7 +195,7 @@ and the halt through a second build that reports them.
 $ rand-guest/target/release/rand-guest info evm2rv/target/erc20/image.bin
 form: image container
 text 7306 words at 0x10000; data 494 words (252 non-zero) at 0x17228; prologue 652 words; program 7958 words from base_pc 0xf5d0
-hc 0a08a9e4a9707a945a4a47cf57b3cd649c3a725bfda2dcba9c17cb29026f4262
+hc 72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8
 program id d9db39056695a8f38a69a39993e33a311ff8a0e5ba7d4ba354b1fbc924a6d087
 7958 words against a cap of 4096: does not fit
 ```
@@ -376,12 +376,18 @@ The transfer's row over time (interpreter / stage one / stage two):
 | the depth-64 storage tree (ZKVM-105) | 154 517 / 109 947 / 95 971 | 18 |
 | the harness savings (ZKVM-117) | 120 892 / 73 922 / **59 946** | **16** |
 
+> **Constraint set 11 moved every `hc`** (ZKVM-107: the Poseidon2 round constants are the Grain
+> table, and `hc` is a Poseidon2 digest of the image's words). The interpreter rows below are
+> re-measured; the translated contracts' rows (ERC-20, sha256 + ecrecover) are still set 10's
+> values — re-measuring them needs a rebuild with the pinned clang 23.1.1, and the host that made
+> the set-11 change had 23.1.4 only. Owed before a chain admits a translation by `hc`.
+
 | program | words | hc |
 |---|---:|---|
-| interpreter (`evm.bin`, layout 2) | 15 167 | `fae9d774…1f09bc0c` |
-| interpreter (`evm-v1.bin`, layout 1) | 15 111 | `7375f67a…794dca16` |
-| ERC-20, stage one | 12 076 | `e61dde652e7524ceb51a2c2edfc2ff25f752f8fd47a15733eb24f195017c383a` |
-| ERC-20, stage two | 7 958 | `0a08a9e4a9707a945a4a47cf57b3cd649c3a725bfda2dcba9c17cb29026f4262` |
+| interpreter (`evm.bin`, layout 2) | 15 167 | `7862f530…151eeb46` (constraint set 11's Grain constants; `fae9d774…1f09bc0c` before) |
+| interpreter (`evm-v1.bin`, layout 1) | 15 111 | `6215d629…3b64bfcdcf` (`7375f67a…794dca16` before set 11) |
+| ERC-20, stage one | 12 076 | `434cc062420fdaddef05777945aa0dd7711d8900675aec7d83b4a3034ba965f6` |
+| ERC-20, stage two | 7 958 | `72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8` |
 | sha256 + ecrecover contract, stage one | 12 451 | `d358b7db…d9676203` |
 | sha256 + ecrecover contract, stage two | 12 223 | `666bfc23…a722154f` |
 

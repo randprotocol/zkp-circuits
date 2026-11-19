@@ -1,53 +1,58 @@
 # 11 — The next levers after phase 5 (ZKVM-113)
 
 Monorepo issue 66 gathers eight open rVM levers. This page records what was done about each on
-`feat/i66-rvm-key-version` and what was not. One item is built (item 2, opt-in); two were
+`feat/i66-rvm-key-version` and what was not. One item is built (item 2 — live since constraint set 11); two were
 measured at a smaller scale than the issue asks for (items 3 and 6); the rest are untouched and
 say so. Every figure here was produced on 2026-11-18 on the 48 GB development machine and is
 quoted with its command.
 
-## 2. A constraint-set version in the verifier key — built, opt-in
+## 2. A constraint-set version in the verifier key — live in set 11
 
 **The hazard** (`docs/09-phase4-spans.md` §6): the rVM's verifier key is the preprocessed
 commitment of `(program, tier, reduce height)`, salted from two fixed labels. Nothing in it
-depends on the AIR's constraint code, so an AIR change that reinterprets a word (phase 4,
-opcodes 25 and 27) leaves the key of every earlier program exactly where it was.
+depended on the AIR's constraint code, so an AIR change that reinterprets a word (phase 4,
+opcodes 25 and 27) left the key of every earlier program exactly where it was.
 
-**What is built.** `machine::KeyVersion`:
+**What is live since constraint set 11.** `machine::KeyVersion`:
 
-- `Unbound` — today's keys. The salt labels are `rvm/key/mmcs` and `rvm/key/pcs`, verbatim.
-  `Machine::new` is `Unbound`, so every key any node holds is unchanged
-  (`tests/verifier_key.rs` passes with its pinned caps untouched).
-- `Set(n)` — the labels with `/cs<n>` appended. The salts decide the preprocessed commitment,
-  so the same program, tier and shape have a different key at every version.
-  `Machine::with_key_version(profile, version)` is the only way to get one, and it is
-  `#[doc(hidden)]`: no machine a node or an aggregator runs is versioned.
+- `Set(n)` — the salt labels `rvm/key/mmcs` and `rvm/key/pcs` with `/cs<n>` appended. The salts
+  decide the preprocessed commitment, so the same program, tier and shape have a different key
+  at every version. `Machine::new` is at `machine::LIVE_KEY_VERSION = Set(RVM_CONSTRAINT_SET)`,
+  and `machine::RVM_CONSTRAINT_SET = 11` is the rVM's own number from this cut on: an rVM AIR
+  change bumps it whether or not the RV32 machine's `CONSTRAINT_SET` moves. (The
+  `NEXT_CONSTRAINT_SET` placeholder is gone.)
+- `Unbound` — the labels verbatim, every key made through set 10. Kept only so
+  `Machine::with_key_version` (`#[doc(hidden)]`, a test entry) can build a set-10-style key and
+  show the live verifier refuses its proofs.
+- Every backend honours the version: `prove_with` (reference, CUDA) seeds its key config from
+  `key_rngs_at(self.key_version)`, so the refusal `ProveError::Backend` that a versioned machine
+  used to return on a non-CPU backend is gone.
 
 `tests/key_version.rs` (tier 8, seconds):
 
-- the default machine is `Unbound` and its key equals the explicitly unbound one;
+- the default machine is at `Set(11)`, its key equals an explicitly versioned machine's, and it
+  is not the `Unbound` key;
 - `Unbound`, `Set(11)`, `Set(12)` and `Set(0)` give four pairwise different caps for one
   program, each reproducible;
 - a proof made at any of `Unbound`, `Set(11)`, `Set(12)` verifies on a machine at the same
-  version and is refused (`VerifyError::Batch`) by the other two — the issue's acceptance line,
-  in all six directions.
+  version and is refused (`VerifyError::Batch`) by the other two, and the default machine accepts
+  the `Set(11)` proof and refuses the `Unbound` one.
 
 **What it does and does not bind.** It binds the *key*: a verifier at set `n` builds its keys
 from the `/cs<n>` labels, an older key is not equal to any of them, and a proof whose
 preprocessed openings are against an older key fails. It does not bind the *program digest*
 (`isa::Program::digest`), which a node may also pin: a program whose words did not change keeps
 its digest across sets. Capacity lane 7 of the digest's first permutation is free
-(`[RVM_PROGRAM_DOMAIN, len, reduce_len, 0]`); putting the version there at the cut moves every
-digest with the keys. Not built — it moves every digest in `tests/pins.json`.
+(`[RVM_PROGRAM_DOMAIN, len, reduce_len, 0]`).
 
-**Left for the cut.** (a) Make `Set(RVM_CONSTRAINT_SET)` the only version and give the rVM a
-number of its own (`machine::NEXT_CONSTRAINT_SET` is a placeholder: the RV32 machine's
-`CONSTRAINT_SET + 1`). (b) The alternative backends (`prove_with`: reference, CUDA) build
-unversioned keys; on a versioned machine they return `ProveError::Backend` instead of making a
-proof that cannot verify. (c) `shape::RvmKey` and the self-verifier program absorb the key cap,
-so every rVM-verifying program digest moves once. (d) The version in the program digest, above.
-(e) The full node's admission: admit keys of the current version only, and drop the previous
-set's in the same change.
+**The cut's list, as done.** (a) Done: `Set(RVM_CONSTRAINT_SET)` is the live version, and the
+rVM has its own number. (b) Done: the backends build versioned keys. (c) Done: every rVM key
+moved, and with it `shape::RvmKey` and every rVM-verifying program digest (`tests/verifier_key.rs`
+and the aggregate pins re-recorded). (d) **Not done**: the version in the program digest's lane
+7. It is not needed for the key binding above, it would move every program digest a second time
+for a property no verifier checks today, and it is a hash-domain change that deserves its own
+review; left as a lever. (e) **Owed downstream**: the full node's admission — admit keys of the
+current version only and drop set 10's in the same change.
 
 ## 3 and 6. The quotient transient and the stage profile — measured at tier 16 only
 

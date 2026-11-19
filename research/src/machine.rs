@@ -45,63 +45,40 @@ pub(crate) const PERM_SEED: u64 = crate::poseidon2_constants::PERM_SEED; // "Ran
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum FriProfile {
-    /// 16 queries, 4 PoW bits — for `cargo test`. 3·16+4 = 52 conjectured bits; not a
-    /// production target, only fast enough for the suite.
+    /// 16 queries, 4 PoW bits, blowup 4 — for `cargo test`. Not a production target, only fast
+    /// enough for the suite. Constraint set 11 (ZKVM-111) moved it from blowup 8 to blowup 4 with
+    /// `Production`, so the suite proves at the rate the chain does.
     Test,
-    /// 80 queries, 20 PoW bits, blowup 8 — the whitepaper's parameter table (Draft 3, Part
-    /// III: FRI 80/8/20). The M2.2 retune to 27 queries (`3·27+20 = 101`) hit the ethSTARK
-    /// *conjectured* 100-bit target but quietly abandoned the *proven* floor the 80-query
-    /// choice exists to keep: the proven proximity-gaps bound is ~86 bits at q=80, g=20 and
-    /// scales ~linearly in the query count, so 27 queries leaves only ~42 proven bits (a
-    /// provable 100 would need q=97 or g=34). The paper's Part III reconciliation weighed
-    /// exactly this trade and kept q=80/g=20; this profile is consensus-facing (genesis-bound
-    /// through the node's chain config, never proof-supplied), so it follows the paper.
-    /// Reverted 2026-09-12 on the zk audit's finding ZM1.
-    /// The recursion machine's *own* proofs take `recursion::machine::RvmFri` instead — rate ¼, 92
-    /// queries, 24 grinding bits at Production: the same ~86 proven bits under the same theorem
-    /// (86.38 against 86.41; `recursion/docs/07-rvm-rate-quarter.md`); this profile still sizes
-    /// every inner proof.
+    /// Rate 1/4 — blowup 4, 92 queries, 24 grinding bits (constraint set 11, ZKVM-111): the
+    /// parameters the rVM's own proofs took in `recursion/docs/07-rvm-rate-quarter.md`, which
+    /// derives 86.38 proven bits for them against 86.41 for the 80/8/20 profile this replaced (the
+    /// whitepaper's table, Draft 3 Part III; ZM1, 2026-09-12, kept 80 queries over the conjectured
+    /// 100-bit retune because the *proven* proximity-gaps bound is what the query count buys).
+    /// `tests/security.rs` repeats that computation over this machine's own chip shapes. This
+    /// profile is consensus-facing (genesis-bound through the node's chain config, never
+    /// proof-supplied). It halves every LDE: at tier 14 the prover's peak heap is −58.5 % against
+    /// the 80/8/20 profile with the per-chunk quotient layout (`docs/05-roadmap.md`, "ZKVM-111").
     Production,
-    /// Opt-in (`next-set`, ZKVM-111): `Test`'s queries and grinding at rate 1/4 (blowup 4).
-    /// Not a production target; it exists so the rate-1/4 machine has a fast test profile.
-    #[cfg(feature = "next-set")]
-    QuarterTest,
-    /// Opt-in (`next-set`, ZKVM-111): rate 1/4 — blowup 4, 92 queries, 24 grinding bits, the
-    /// parameters the rVM's own proofs took in `recursion/docs/07-rvm-rate-quarter.md`. A
-    /// candidate for the next constraint set, **not** a profile any chain runs: the proven-bits
-    /// figure that document derives (86.38) is for the rVM's chip shapes and has not been
-    /// recomputed for this machine's. `docs/05-roadmap.md`, "ZKVM-111".
-    #[cfg(feature = "next-set")]
-    Quarter,
 }
 
 impl FriProfile {
     pub const fn num_queries(self) -> usize {
         match self {
             Self::Test => 16,
-            Self::Production => 80,
-            #[cfg(feature = "next-set")]
-            Self::QuarterTest => 16,
-            #[cfg(feature = "next-set")]
-            Self::Quarter => 92,
+            Self::Production => 92,
         }
     }
     pub fn pow_bits(self) -> usize {
         match self {
             Self::Test => 4,
-            Self::Production => 20,
-            #[cfg(feature = "next-set")]
-            Self::QuarterTest => 4,
-            #[cfg(feature = "next-set")]
-            Self::Quarter => 24,
+            Self::Production => 24,
         }
     }
-    /// The FRI blowup, as a base-2 log: 3 (rate 1/8) for the two live profiles.
+    /// The FRI blowup, as a base-2 log: 2 (rate 1/4) for both profiles since constraint set 11
+    /// (3, rate 1/8, before).
     pub const fn log_blowup(self) -> usize {
         match self {
-            Self::Test | Self::Production => 3,
-            #[cfg(feature = "next-set")]
-            Self::QuarterTest | Self::Quarter => 2,
+            Self::Test | Self::Production => LOG_BLOWUP,
         }
     }
 }
@@ -197,8 +174,9 @@ pub fn seeded_config_for_tests(profile: FriProfile, mmcs_label: &[u8], pcs_label
 
 /// FRI's rate, as a base-2 log: every committed matrix is extended to `2^LOG_BLOWUP` times its
 /// (zero-knowledge-doubled) height. One name for `generic_config`'s parameter and for
-/// `prover_data_bytes`, which sizes a cached preprocessed tree from it.
-const LOG_BLOWUP: usize = 3;
+/// `prover_data_bytes`, which sizes a cached preprocessed tree from it. 2 (rate 1/4) since
+/// constraint set 11 (ZKVM-111); 3 before.
+pub const LOG_BLOWUP: usize = 2;
 
 /// The FRI/PCS setup, written once over any value-MMCS and DFT. Every backend goes through
 /// here, so "the reference backend uses the same FRI parameters as the CPU one" is not a
@@ -287,7 +265,7 @@ use crate::tables::program::{self, program_trace, ProgramAir};
 use crate::tables::range::{range_trace, RangeAir, RangeCounts};
 use crate::tables::sha256::{sha256_trace, Sha256Air, Sha256Event};
 use p3_air::{Air, AirBuilder, BaseAir, PermutationAirBuilder};
-use p3_batch_stark::{prove_batch, verify_batch, BatchProof, CommonData, ProverData, StarkInstance};
+use p3_batch_stark::{BatchProof, CommonData, ProverData, StarkInstance};
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use p3_lookup::InteractionBuilder;
 use p3_matrix::dense::RowMajorMatrix;
@@ -299,18 +277,27 @@ use std::sync::{Arc, Mutex};
 
 pub const TIERS: [usize; 6] = [10, 12, 14, 16, 18, 20];
 
-/// How this machine commits each instance's quotient chunks: upstream Plonky3's one matrix per
-/// chunk. The rVM (`../recursion`, `machine::QUOTIENT_LAYOUT`) commits one matrix per instance
-/// and cut its prover's peak heap by 29 % at tier 16 doing so; flipping this constant is the
-/// same cut for this machine and a proof-format change, so a constraint-set cut (ZKVM-111).
-/// Until then the other layout is reachable only through the `next-set` feature's
-/// `Machine::{prove_traces_with_layout, verify_with_layout}`. `QuotientLayout` exists only in the
-/// vendored fork, which a package's `[patch]` gives its own builds but not a crate that depends on
-/// it (`evm2rv`, `sbpf2rv`, `rand-guest` build against crates.io's p3-batch-stark); so this and
-/// every other use of the fork's layout API is behind `next-set`, and a default build calls
-/// upstream's `verify_batch` exactly as before ZKVM-111.
-#[cfg(feature = "next-set")]
-pub const QUOTIENT_LAYOUT: p3_batch_stark::QuotientLayout = p3_batch_stark::QuotientLayout::PerChunk;
+/// Constraint set 11 (ZKVM-112): admitted poseidon2 heights are this many doublings apart, counted
+/// down from the tier's `t + 2` ([`Tier::admitted_poseidon2_log_heights`]). 2 rather than 1: each
+/// admitted height is a distinct verifier key, and 2 keeps them to `(t − 4) / 2` per tier where 1
+/// would be `t − 4`, at the price of a table at most four times taller than a run needs (1 would
+/// halve that worst case). The table is a fifth to a fifth and a half of a run's main cells at the
+/// shapes measured (`docs/05-roadmap.md`, "ZKVM-112"), so the over-allocation costs less than a
+/// doubled key set does on a verifier that caches keys by shape.
+pub const POSEIDON2_HEIGHT_STEP: u8 = 2;
+
+/// How this machine commits each instance's quotient chunks: one matrix per instance (constraint
+/// set 11, ZKVM-111), as the rVM (`../recursion`, `machine::QUOTIENT_LAYOUT`) does. Through set 10
+/// it was upstream Plonky3's one matrix per chunk; the per-instance layout commits the same
+/// polynomials in fewer, wider matrices, which cut the prover's peak heap by 29.8 % and the proof
+/// by 21.1 % at tier 14 (`docs/05-roadmap.md`, "ZKVM-111"). It is a proof-format change: a verifier
+/// lists the quotient round under this layout and refuses a proof committed under the other.
+///
+/// `QuotientLayout` exists only in the vendored fork (`../vendor/p3-batch-stark`), which a package's
+/// `[patch]` gives its own builds but not a crate that depends on it — so every crate that builds
+/// this one (`evm2rv`, `sbpf2rv`, `rand-guest`, `recursion`, `rand-zkvm-cuda`'s users, the
+/// fullnode) patches `p3-batch-stark` to the fork in its own `[patch.crates-io]`.
+pub const QUOTIENT_LAYOUT: p3_batch_stark::QuotientLayout = p3_batch_stark::QuotientLayout::PerInstance;
 
 // Audit COV-2 / INT-6: the private-data floor (`tables::MIN_PRIVATE_TABLE_LOG_HEIGHT`) must fit
 // every ceiling a floored table meets at the *smallest* tier, or an honest small call would be
@@ -320,11 +307,9 @@ pub const QUOTIENT_LAYOUT: p3_batch_stark::QuotientLayout = p3_batch_stark::Quot
 // is 10, so no tier ever needs raising and no `ProveError` exists for it; this assertion is what
 // would say so first if a smaller tier were ever added.
 const _: () = assert!(crate::tables::MIN_PRIVATE_TABLE_LOG_HEIGHT as usize <= TIERS[0] + 2);
-// And the floor's own derivation: 80 production queries plus the two out-of-domain points must
+// And the floor's own derivation: 92 production queries plus the two out-of-domain points must
 // not outnumber the table's random rows (`tables::MIN_PRIVATE_TABLE_LOG_HEIGHT`'s doc comment).
 const _: () = assert!(1usize << crate::tables::MIN_PRIVATE_TABLE_LOG_HEIGHT >= FriProfile::Production.num_queries() + 2);
-#[cfg(feature = "next-set")]
-const _: () = assert!(1usize << crate::tables::MIN_PRIVATE_TABLE_LOG_HEIGHT >= FriProfile::Quarter.num_queries() + 2);
 
 /// M4.2 (controller ruling 1): the sanity ceiling on `Proof::mem_log_height`, the analogue of
 /// `tables::program::MAX_LOG_HEIGHT` for a table that has no module of its own to hold one.
@@ -441,6 +426,27 @@ impl Tier {
     /// moving to tier 16 (whose unmodified `2^(t+1)` would also clear it, but at every other
     /// table's much larger tier-16 height too).
     pub fn poseidon2_height(self) -> usize { 1 << (self.0 + 2) }
+    /// Constraint set 11 (ZKVM-112): the tallest poseidon2 table this tier admits, as a base-2
+    /// log — `t + 2`, the height every proof carried through set 10 ([`Self::poseidon2_height`]).
+    /// Saturating, so an untrusted tier cannot overflow it; callers range-check the tier first.
+    pub fn max_poseidon2_log_height(self) -> u8 { self.0.saturating_add(2).min(u8::MAX as usize) as u8 }
+    /// Constraint set 11 (ZKVM-112): the poseidon2 heights a proof at this tier may declare,
+    /// smallest first — `t + 2, t, t − 2, …` ([`POSEIDON2_HEIGHT_STEP`] apart) down to the
+    /// private-data floor (`tables::MIN_PRIVATE_TABLE_LOG_HEIGHT`). At the even tiers of `TIERS`
+    /// that is `8, 10, …, t + 2`: `(t − 4) / 2` shapes, 3 at tier 10 and 8 at tier 20.
+    pub fn admitted_poseidon2_log_heights(self) -> Vec<u8> {
+        let max = self.max_poseidon2_log_height() as i32;
+        let floor = crate::tables::MIN_PRIVATE_TABLE_LOG_HEIGHT as i32;
+        let mut v: Vec<u8> = (0..).map(|k| max - k * POSEIDON2_HEIGHT_STEP as i32).take_while(|h| *h >= floor).map(|h| h as u8).collect();
+        v.reverse();
+        v
+    }
+    /// The poseidon2 height a prover declares by default for `permutations` permutations at this
+    /// tier: the smallest admitted one whose table holds them (one 32-row block each). `None` if
+    /// even `t + 2` does not.
+    pub fn poseidon2_log_height_for(self, permutations: usize) -> Option<u8> {
+        self.admitted_poseidon2_log_heights().into_iter().find(|h| permutations * crate::tables::poseidon2::BLOCK <= 1usize << h)
+    }
     // M3.4 (fix): there is no `Tier::program_height`. The first cut made the program table's
     // height `cpu_height()` — wrong: a digest row absorbs up to 4 `PROGRAM_WORD`s per *cycle*,
     // so a program with `len` up to `4·(cpu_height − 1)` words fits the cycle budget while
@@ -552,15 +558,17 @@ pub fn chips(tier: Tier, keccak_log_height: u8, sha256_log_height: u8) -> Vec<Ch
 
 /// [`chips`] with the modq table's declared height (private multisig phase 3). `0` declares no
 /// modq table and is exactly `chips`; any other value pushes `Chip::Modq` after `Sha256` and
-/// before the mandatory `Public`, so no earlier index moves.
+/// before the mandatory `Public`, so no earlier index moves. The poseidon2 table is at the tier's
+/// full height; [`chips_at`] takes a declared one.
 pub fn chips_with_modq(tier: Tier, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8) -> Vec<Chip> {
     chips_at(tier, keccak_log_height, sha256_log_height, modq_log_height, tier.poseidon2_height())
 }
 
-/// [`chips_with_modq`] with the poseidon2 table's height as an argument. Every caller in the
-/// current constraint set passes `tier.poseidon2_height()` (through `chips_with_modq`); the
-/// `next-set` feature's `next_set` module is the only one that passes anything else (ZKVM-112).
-pub(crate) fn chips_at(tier: Tier, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, poseidon2_height: usize) -> Vec<Chip> {
+/// [`chips_with_modq`] with the poseidon2 table's height (rows, not a log) as an argument —
+/// constraint set 11's chip set (ZKVM-112): the poseidon2 table is as tall as the proof declares
+/// (`Proof::poseidon2_log_height`). [`chips`] and [`chips_with_modq`] are this at the tier's full
+/// `2^(t+2)` — the right chip set for a proof only when it declares that height.
+pub fn chips_at(tier: Tier, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, poseidon2_height: usize) -> Vec<Chip> {
     let _ = tier;
     let mut v = vec![
         Chip::Program(ProgramAir),
@@ -631,6 +639,10 @@ pub struct Traces {
     /// Constraint set 6: the public table's height, as a base-2 log — `program_log_height`'s
     /// rule again, applied to `tables::public::public_log_height`.
     pub public_log_height: u8,
+    /// Constraint set 11 (ZKVM-112): the poseidon2 table's height, as a base-2 log — the
+    /// smallest admitted height that holds the run (`Tier::poseidon2_log_height_for`), or
+    /// `ProveOptions::poseidon2_log_height`. See `Proof::poseidon2_log_height`.
+    pub poseidon2_log_height: u8,
 }
 impl Traces {
     /// The traces in `chips()` order — eight entries, plus one per optional hash table this proof
@@ -651,7 +663,11 @@ impl Traces {
     pub fn heights(&self) -> Vec<usize> { self.as_slice().iter().map(|m| m.height()).collect() }
     /// Everything a `Proof` takes from a trace set besides the matrices themselves.
     fn head(&self) -> TraceHead {
-        TraceHead { public_values: self.public_values.clone(), program_log_height: self.program_log_height, input_log_height: self.input_log_height, keccak_log_height: self.keccak_log_height, sha256_log_height: self.sha256_log_height, modq_log_height: self.modq_log_height, public_log_height: self.public_log_height, mem_log_height: self.mem_log_height }
+        TraceHead { public_values: self.public_values.clone(), program_log_height: self.program_log_height, input_log_height: self.input_log_height, keccak_log_height: self.keccak_log_height, sha256_log_height: self.sha256_log_height, modq_log_height: self.modq_log_height, public_log_height: self.public_log_height, mem_log_height: self.mem_log_height, poseidon2_log_height: self.poseidon2_log_height }
+    }
+    /// The verifier-key shape these traces prove under.
+    pub fn shape(&self, tier: Tier) -> VerifierKeyShape {
+        self.head().shape(tier)
     }
     /// [`Self::as_slice`], owned: the matrices in `chips()` order, for a prover that is done with
     /// the trace set and wants to widen each in place (`tables::blind::widen_owned`).
@@ -676,6 +692,12 @@ struct TraceHead {
     modq_log_height: u8,
     public_log_height: u8,
     mem_log_height: u8,
+    poseidon2_log_height: u8,
+}
+impl TraceHead {
+    fn shape(&self, tier: Tier) -> VerifierKeyShape {
+        VerifierKeyShape { tier, program_log_height: self.program_log_height, input_log_height: self.input_log_height, keccak_log_height: self.keccak_log_height, sha256_log_height: self.sha256_log_height, modq_log_height: self.modq_log_height, public_log_height: self.public_log_height, poseidon2_log_height: self.poseidon2_log_height }
+    }
 }
 
 #[derive(Debug)]
@@ -722,6 +744,9 @@ pub enum ProveError {
     /// Named apart from `TooManyPermutations` deliberately: that variant is M4.2's, and means
     /// *keccak* permutations against the declared keccak height. Two different tables, two
     /// different budgets, two different variants.
+    ///
+    /// Constraint set 11 (ZKVM-112): also the refusal of a `ProveOptions::poseidon2_log_height`
+    /// that is not admitted at the tier or does not hold the run.
     TooManyPoseidon2Permutations { perms: usize, tier: Tier },
     /// Audit ZH2 (2026-09-12): the program-digest rows' `HASH_LEFT` is a 16-bit value in the
     /// AIR (`tables::cpu`'s `LEFT0..1` byte limbs), so a program longer than 65535 words can
@@ -824,6 +849,13 @@ pub enum VerifyError {
     /// own declared header (`tier`, `keccak_log_height`, `sha256_log_height`) — a larger value
     /// could only be a mispriced header, refused natively before any key is built.
     GasLimit,
+    /// Constraint set 11 (ZKVM-112): `proof.poseidon2_log_height` is under the private-data floor.
+    Poseidon2HeightBelowFloor { declared: u8 },
+    /// Constraint set 11: `proof.poseidon2_log_height` exceeds the tier's `t + 2`.
+    Poseidon2HeightExceedsTier { declared: u8, max: u8 },
+    /// Constraint set 11: `proof.poseidon2_log_height` is inside the range but not one of the
+    /// tier's admitted heights (`Tier::admitted_poseidon2_log_heights`, `POSEIDON2_HEIGHT_STEP`).
+    Poseidon2HeightNotAdmitted { declared: u8 },
 }
 
 /// Every check `verify` runs on a proof's public values before any of its batch is touched:
@@ -848,7 +880,9 @@ pub fn check_public_values(hc: &[u32; 8], proof: &Proof) -> Result<(), VerifyErr
     if !TIERS.contains(&proof.tier.0) { return Err(VerifyError::Tier); }
     // Constraint set 8: the declared gas limit is canonical (checked above) and never past what
     // the header itself allows — a larger value could only be a mispriced header.
-    if proof.public_values[pv::GAS] > crate::gas::gas_max_with_modq(proof.tier, proof.keccak_log_height, proof.sha256_log_height, proof.modq_log_height) {
+    // Constraint set 11 (ZKVM-112): the permutation term follows the declared poseidon2 height
+    // (`gas::gas_max_declared`), which `gas_max_declared` clamps before any shift.
+    if proof.public_values[pv::GAS] > crate::gas::gas_max_declared(proof.tier, proof.keccak_log_height, proof.sha256_log_height, proof.modq_log_height, proof.poseidon2_log_height) {
         return Err(VerifyError::GasLimit);
     }
     // Audit ZKA-1: an output slot is a 32-bit word, and every consumer reads it as one — but the
@@ -932,12 +966,15 @@ pub fn check_declared_heights(
     public_log_height: u8,
     mem_log_height: u8,
 ) -> Result<(), VerifyError> {
-    check_declared_heights_with_modq(tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, 0, public_log_height, mem_log_height)
+    check_declared_heights_with_modq(tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, 0, public_log_height, mem_log_height, tier.max_poseidon2_log_height())
 }
 
 /// [`check_declared_heights`] with the modq table's declared height (private multisig phase 3):
 /// `0` declares no modq table; any other value must lie in
 /// `[max(tables::modq::MIN_LOG_HEIGHT, floor), Tier::max_modq_log_height]`, else `ModqHeight`.
+/// And, since constraint set 11 (ZKVM-112), the poseidon2 table's declared height, which must be
+/// one of the tier's admitted heights ([`check_poseidon2_log_height`], run last). The
+/// modq-free, full-height [`check_declared_heights`] passes `tier.max_poseidon2_log_height()`.
 #[allow(clippy::too_many_arguments)]
 pub fn check_declared_heights_with_modq(
     tier: Tier,
@@ -948,6 +985,7 @@ pub fn check_declared_heights_with_modq(
     modq_log_height: u8,
     public_log_height: u8,
     mem_log_height: u8,
+    poseidon2_log_height: u8,
 ) -> Result<(), VerifyError> {
     // `tier` is deserialized from untrusted bytes: an attacker-supplied out-of-range tier
     // (anything not in TIERS) must be rejected first of all, since every check below it — and
@@ -1031,6 +1069,33 @@ pub fn check_declared_heights_with_modq(
     // tighter bound than this.
     if !(tier.min_mem_log_height()..=MAX_MEM_LOG_HEIGHT).contains(&mem_log_height) {
         return Err(VerifyError::MemoryHeight);
+    }
+    // Constraint set 11 (ZKVM-112): the poseidon2 table's height, one of the tier's admitted ones.
+    check_poseidon2_log_height(tier, poseidon2_log_height)
+}
+
+/// Constraint set 11 (ZKVM-112): the range check on a declared poseidon2 height — at least the
+/// private-data floor, at most the tier's `t + 2`, and a whole number of [`POSEIDON2_HEIGHT_STEP`]s
+/// below `t + 2`. An unknown tier is refused (`Tier`) before its height is computed.
+///
+/// **Why the declared height needs no lower bound from the run.** A table too short for the run's
+/// permutations is not a forgery, it is unprovable: every digest-prefix and absorb row of the cpu
+/// table sends one `POSEIDON2` message, and each must be received by a real block of the poseidon2
+/// table or the bus does not balance — the memory table's argument (`Proof::mem_log_height`). A
+/// table taller than the run needs is padding blocks, which receive nothing. So the verifier only
+/// bounds the height to the admitted set, which is what keeps the number of verifier keys small
+/// and the preprocessed trace a verifier builds bounded by the tier's.
+pub fn check_poseidon2_log_height(tier: Tier, declared: u8) -> Result<(), VerifyError> {
+    if !TIERS.contains(&tier.0) { return Err(VerifyError::Tier); }
+    if declared < crate::tables::MIN_PRIVATE_TABLE_LOG_HEIGHT {
+        return Err(VerifyError::Poseidon2HeightBelowFloor { declared });
+    }
+    let max = tier.max_poseidon2_log_height();
+    if declared > max {
+        return Err(VerifyError::Poseidon2HeightExceedsTier { declared, max });
+    }
+    if (max - declared) % POSEIDON2_HEIGHT_STEP != 0 {
+        return Err(VerifyError::Poseidon2HeightNotAdmitted { declared });
     }
     Ok(())
 }
@@ -1125,6 +1190,16 @@ pub struct ProveOptions {
     pub min_keccak_log_height: u8,
     /// The memory table's floor, above the tier's own `t + 2`.
     pub min_mem_log_height: u8,
+    /// Constraint set 11 (ZKVM-112): the poseidon2 table's height to declare; `None` = the
+    /// smallest admitted height that holds the run (`Tier::poseidon2_log_height_for`), raised —
+    /// by admitted steps — until the header's ceiling (`gas::gas_max_declared`) covers an explicit
+    /// `gas_limit`, so a limit any full-height header could carry is still provable. A height
+    /// the tier does not admit, or one too short for the run's permutations, is refused
+    /// (`ProveError::TooManyPoseidon2Permutations`) — the prover refuses what the verifier would.
+    /// Like the floors above, a taller declaration hides the permutation count to the resolution of
+    /// the height declared, and `Some(tier.max_poseidon2_log_height())` hides it to the tier's, as
+    /// every proof did through constraint set 10. The `msauth` prover pins it.
+    pub poseidon2_log_height: Option<u8>,
 }
 
 /// Constraint set 8: `gas_limit` is the proof's declared `pv::GAS`, and must lie in
@@ -1213,6 +1288,16 @@ fn build_traces_inner(program: &Program, inputs: &[u32], public: &[u32], salt: [
     if permutations * crate::tables::poseidon2::BLOCK > tier.poseidon2_height() {
         return Err(ProveError::TooManyPoseidon2Permutations { perms: permutations, tier });
     }
+    // Constraint set 11 (ZKVM-112): the poseidon2 table's height is declared — the smallest
+    // admitted height that holds these permutations, or the caller's, which must be admitted and
+    // hold them too (the verifier would refuse the one, the bus the other). An explicit gas limit
+    // may raise the default further, below.
+    let poseidon2_log_height = match opts.poseidon2_log_height {
+        None => tier.poseidon2_log_height_for(permutations),
+        Some(h) => (check_poseidon2_log_height(tier, h).is_ok() && permutations * crate::tables::poseidon2::BLOCK <= 1usize << h).then_some(h),
+    }
+    .ok_or(ProveError::TooManyPoseidon2Permutations { perms: permutations, tier })?;
+    let mut poseidon2_log_height = poseidon2_log_height;
     // M3.4 (fix): the program table's height is proof-declared, not tier-derived — see
     // `tables::program::program_log_height`'s doc comment.
     let program_log_height = program::program_log_height(program.len());
@@ -1317,7 +1402,16 @@ fn build_traces_inner(program: &Program, inputs: &[u32], public: &[u32], salt: [
     // difference in four byte limbs) is built. `gas_max` < 2^32 at every admissible header
     // (`tests/gas.rs` pins the largest), so the slack always fits the limbs.
     let gas = crate::gas::gas_of(program, inputs, public, &exec.events);
-    let max = crate::gas::gas_max_with_modq(tier, keccak_log_height, sha256_log_height, modq_log_height);
+    // Constraint set 11: an explicit gas limit above the default poseidon2 height's ceiling raises
+    // that height (by admitted steps, up to `t + 2`) until the header can carry the limit — a
+    // prover-side choice the verifier does not see as anything but a taller table. Only when the
+    // caller left the height to the prover; a pinned height is never moved.
+    if let (Some(limit), None) = (gas_limit, opts.poseidon2_log_height) {
+        while crate::gas::gas_max_declared(tier, keccak_log_height, sha256_log_height, modq_log_height, poseidon2_log_height) < limit && poseidon2_log_height < tier.max_poseidon2_log_height() {
+            poseidon2_log_height += POSEIDON2_HEIGHT_STEP;
+        }
+    }
+    let max = crate::gas::gas_max_declared(tier, keccak_log_height, sha256_log_height, modq_log_height, poseidon2_log_height);
     let gas_limit = gas_limit.unwrap_or(max);
     if gas_limit < gas { return Err(ProveError::GasLimitBelowRun { gas, limit: gas_limit }); }
     if gas_limit > max { return Err(ProveError::GasLimitAboveHeader { limit: gas_limit, max }); }
@@ -1412,7 +1506,7 @@ fn build_traces_inner(program: &Program, inputs: &[u32], public: &[u32], salt: [
         Poseidon2Event { input, output: blk.state_out }
     }).collect();
     let all_hash_events: Vec<Poseidon2Event> = digest_events.into_iter().chain(indigest_events).chain(pubdigest_events).chain(hash_events).collect();
-    let poseidon2_t = poseidon2_trace(&all_hash_events, tier.poseidon2_height());
+    let poseidon2_t = poseidon2_trace(&all_hash_events, 1usize << poseidon2_log_height);
     let hc = program.digest();
     let hin = crate::hash::input_digest(salt, inputs);
     let hpub = crate::hash::public_digest(public);
@@ -1426,7 +1520,7 @@ fn build_traces_inner(program: &Program, inputs: &[u32], public: &[u32], salt: [
         // encodes (the `Machine::prove*` paths pass the header's own ceiling by default;
         // `ProveOptions::gas_limit` overrides it).
         public_values: public_values(program.base_pc, tier.0, &exec.outputs, &hc, &hin, &hpub, gas_limit),
-        program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height, mem_log_height,
+        program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height, mem_log_height, poseidon2_log_height,
     })
 }
 
@@ -1504,6 +1598,19 @@ pub struct Proof {
     /// before M4.2.
     /// `MAX_MEM_LOG_HEIGHT` is the usual defensive ceiling on an untrusted shift amount.
     pub mem_log_height: u8,
+    /// Constraint set 11 (ZKVM-112): the poseidon2 table's height, declared by the prover — one
+    /// of the tier's admitted heights (`t + 2, t, …` down to the private-data floor;
+    /// `check_poseidon2_log_height` has the rule and why no lower bound from the run is needed).
+    /// Through constraint set 10 the table was `2^(t+2)` rows at every tier whether or not the
+    /// guest hashed, and was about a fifth of a run's main cells.
+    ///
+    /// Public, like the others: it bounds the number of Poseidon2 permutations the run made
+    /// (program, input and public digests included) to within the admitted set's factor of four —
+    /// the same class of coarse, structural leak `keccak_log_height` is (`docs/03-privacy.md`,
+    /// "What a proof leaks"). A prover that wants the old resolution declares `t + 2`
+    /// (`ProveOptions::poseidon2_log_height`). It is one more component of the verifier-key shape
+    /// and sizes the gas ceiling's permutation term (`gas::gas_max_declared`).
+    pub poseidon2_log_height: u8,
     pub public_values: Vec<u64>,
     pub batch: BatchProof<Config>,
 }
@@ -1599,8 +1706,10 @@ const KEY_CACHE_CAPACITY: usize = 64;
 /// program/input sizes, unlike the tier-only cache this replaces, so the eviction here is
 /// a real policy again, not just defense in depth.
 /// Private multisig phase 3: the 7-tuple `(tier, program, input, keccak, sha256, modq, public)`;
-/// `modq = 0` is the modq-free key every pre-phase-3 call keeps reaching.
-type KeyShape = (usize, u8, u8, u8, u8, u8, u8);
+/// `modq = 0` is the modq-free key every pre-phase-3 call keeps reaching. Constraint set 11
+/// (ZKVM-112): the 8-tuple, with the declared poseidon2 height last — at most
+/// `(t − 4) / 2` more keys per shape (`Tier::admitted_poseidon2_log_heights`).
+type KeyShape = (usize, u8, u8, u8, u8, u8, u8, u8);
 type KeySlot = Arc<std::sync::OnceLock<Arc<CommonData<Config>>>>;
 
 struct KeyCache {
@@ -1660,7 +1769,7 @@ impl KeyCache {
 pub const PROVER_KEY_BUDGET: usize = 1 << 30;
 
 /// What a cached [`ProverData`] is a function of, and so the prover cache's key: the constraint
-/// set, the FRI profile and the seven-component shape the verifier key is keyed on. The first two
+/// set, the FRI profile and the eight-component shape the verifier key is keyed on. The first two
 /// are constants of a build and of a `Machine`, and the cache lives in the `Machine`, so they could
 /// not differ between two lookups even without being here; they are in the key so that it says
 /// everything the data depends on by itself, and no later change (a cache shared between machines,
@@ -1774,12 +1883,15 @@ fn prover_data_bytes(data: &ProverData<Config>) -> usize {
 pub const CONSTRAINT_SET: u32 = 11;
 
 /// The [`VerifierKeyBlob`] wire format's version: the header layout and the `CommonData` mirror
-/// (`CommonDataWire`). Format 1 is the first.
-pub const VERIFIER_KEY_BLOB_FORMAT: u32 = 1;
+/// (`CommonDataWire`). Format 1 is the first; format 2 (constraint set 11) adds
+/// `VerifierKeyShape::poseidon2_log_height` to the header.
+pub const VERIFIER_KEY_BLOB_FORMAT: u32 = 2;
 
-/// One verifier-key shape: the tier and the six declared table heights the key cache is keyed
-/// on — `(tier, program, input, keccak, sha256, modq, public)`. `mem_log_height` is deliberately
-/// absent (every valid memory height yields the same `CommonData`; `Machine::verifier_key`).
+/// One verifier-key shape: the tier and the seven declared table heights the key cache is keyed
+/// on — `(tier, program, input, keccak, sha256, modq, public, poseidon2)`. `mem_log_height` is
+/// deliberately absent (every valid memory height yields the same `CommonData`;
+/// `Machine::verifier_key`). `poseidon2_log_height` is constraint set 11's (ZKVM-112): the
+/// poseidon2 table has preprocessed columns, so its height is part of the commitment.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VerifierKeyShape {
     pub tier: Tier,
@@ -1789,6 +1901,7 @@ pub struct VerifierKeyShape {
     pub sha256_log_height: u8,
     pub modq_log_height: u8,
     pub public_log_height: u8,
+    pub poseidon2_log_height: u8,
 }
 impl VerifierKeyShape {
     /// The shape `Machine::verify` looks the key up under for `proof`.
@@ -1801,10 +1914,25 @@ impl VerifierKeyShape {
             sha256_log_height: proof.sha256_log_height,
             modq_log_height: proof.modq_log_height,
             public_log_height: proof.public_log_height,
+            poseidon2_log_height: proof.poseidon2_log_height,
         }
     }
+    /// The shape with the poseidon2 table at the tier's full `t + 2` — what every shape was
+    /// through constraint set 10, and what the 6-height `verifier_key*` entry points build.
+    pub fn full_height(tier: Tier, program_log_height: u8, input_log_height: u8, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, public_log_height: u8) -> Self {
+        Self { tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height, poseidon2_log_height: tier.max_poseidon2_log_height() }
+    }
+    /// The shape's chip set, in `chips()` order ([`chips_at`] at the declared poseidon2 height).
+    /// The caller has range-checked the shape.
+    pub fn chips(&self) -> Vec<Chip> {
+        chips_at(self.tier, self.keccak_log_height, self.sha256_log_height, self.modq_log_height, 1usize << self.poseidon2_log_height)
+    }
+    /// The range checks a proof of this shape passes, at the tier's memory floor.
+    pub fn check(&self) -> Result<(), VerifyError> {
+        check_declared_heights_with_modq(self.tier, self.program_log_height, self.input_log_height, self.keccak_log_height, self.sha256_log_height, self.modq_log_height, self.public_log_height, self.tier.min_mem_log_height(), self.poseidon2_log_height)
+    }
     fn key(&self) -> KeyShape {
-        (self.tier.0, self.program_log_height, self.input_log_height, self.keccak_log_height, self.sha256_log_height, self.modq_log_height, self.public_log_height)
+        (self.tier.0, self.program_log_height, self.input_log_height, self.keccak_log_height, self.sha256_log_height, self.modq_log_height, self.public_log_height, self.poseidon2_log_height)
     }
 }
 
@@ -1937,6 +2065,13 @@ fn common_from_bytes(bytes: &[u8]) -> Result<CommonData<Config>, InstallKeyError
     Ok(CommonData { preprocessed, lookups: wire.lookups })
 }
 
+/// The batch prover every honest CPU path calls: `prove_batch_with_layout` under
+/// [`QUOTIENT_LAYOUT`] (constraint set 11, ZKVM-111; through set 10 upstream's `prove_batch`, which
+/// is the fork's `PerChunk`).
+fn prove_live<'a>(cfg: &'a Config, instances: &'a [StarkInstance<'a, Config, Chip>], prover_data: &'a ProverData<Config>) -> BatchProof<Config> {
+    p3_batch_stark::prove_batch_with_layout(cfg, instances, prover_data, QUOTIENT_LAYOUT)
+}
+
 pub struct Machine { pub config: Config, pub profile: FriProfile, keys: Mutex<KeyCache>, key_builds: std::sync::atomic::AtomicUsize, prover_keys: Mutex<ByteLru<ProverKey, ProverData<Config>>>, prover_key_builds: std::sync::atomic::AtomicUsize }
 
 impl Machine {
@@ -2006,15 +2141,14 @@ impl Machine {
     /// (`Self::verifier_key`'s doc comment), so every valid `mem_log_height` gives this same data,
     /// and the floor makes the entry independent of which proof missed first
     /// (`prover_data_is_the_same_at_every_memory_height` pins it).
-    #[allow(clippy::too_many_arguments)]
-    fn prover_key(&self, tier: Tier, program_log_height: u8, input_log_height: u8, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, public_log_height: u8) -> Arc<ProverData<Config>> {
-        let key = ProverKey { constraint_set: CONSTRAINT_SET, profile: self.profile, shape: (tier.0, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height) };
+    fn prover_key(&self, shape: VerifierKeyShape) -> Arc<ProverData<Config>> {
+        let key = ProverKey { constraint_set: CONSTRAINT_SET, profile: self.profile, shape: shape.key() };
         // As `verifier_key_with_modq`: the lock is held only to find or make the slot, the build
         // runs outside it, and concurrent first callers of one key share one build.
         let slot = self.prover_keys.lock().unwrap().slot(key);
         let data = slot.get_or_init(|| {
             self.prover_key_builds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Arc::new(ProverData::from_airs_and_degrees(&key_config(self.profile), &chips_with_modq(tier, keccak_log_height, sha256_log_height, modq_log_height), &self.log_ext_degrees_with_modq(tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height, tier.min_mem_log_height())))
+            Arc::new(ProverData::from_airs_and_degrees(&key_config(self.profile), &shape.chips(), &self.log_ext_degrees_for(shape, shape.tier.min_mem_log_height())))
         }).clone();
         self.prover_keys.lock().unwrap().settle(key, &slot, prover_data_bytes(&data));
         data
@@ -2028,8 +2162,8 @@ impl Machine {
     /// A test instrument: whether the key for this shape is cached right now (a lookup that does
     /// not count as a use).
     #[doc(hidden)]
-    pub fn has_cached_key(&self, tier: Tier, program_log_height: u8, input_log_height: u8, keccak_log_height: u8, sha256_log_height: u8, public_log_height: u8) -> bool {
-        self.keys.lock().unwrap().is_built(&(tier.0, program_log_height, input_log_height, keccak_log_height, sha256_log_height, 0, public_log_height))
+    pub fn has_cached_key(&self, shape: VerifierKeyShape) -> bool {
+        self.keys.lock().unwrap().is_built(&shape.key())
     }
 
     /// Each instance's extended trace degree bits, in `chips()` order — a pure function of the
@@ -2052,10 +2186,17 @@ impl Machine {
         self.log_ext_degrees_at(tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height, mem_log_height, tier.poseidon2_height())
     }
 
-    /// [`Self::log_ext_degrees_with_modq`] with the poseidon2 table's height as an argument —
-    /// `tier.poseidon2_height()` on every current-set path; see [`chips_at`].
+    /// [`Self::log_ext_degrees_at`] for a shape and a declared memory height — what `verify`
+    /// compares `proof.batch.degree_bits` against.
+    pub fn log_ext_degrees_for(&self, shape: VerifierKeyShape, mem_log_height: u8) -> Vec<usize> {
+        let s = shape;
+        self.log_ext_degrees_at(s.tier, s.program_log_height, s.input_log_height, s.keccak_log_height, s.sha256_log_height, s.modq_log_height, s.public_log_height, mem_log_height, 1usize << s.poseidon2_log_height)
+    }
+
+    /// [`Self::log_ext_degrees_with_modq`] with the poseidon2 table's height (rows) as an
+    /// argument — constraint set 11's declared height (ZKVM-112); see [`chips_at`].
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn log_ext_degrees_at(&self, tier: Tier, program_log_height: u8, input_log_height: u8, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, public_log_height: u8, mem_log_height: u8, poseidon2_height: usize) -> Vec<usize> {
+    pub fn log_ext_degrees_at(&self, tier: Tier, program_log_height: u8, input_log_height: u8, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, public_log_height: u8, mem_log_height: u8, poseidon2_height: usize) -> Vec<usize> {
         let zk = self.config.is_zk();
         // Order matches `chips()`: program, cpu, memory, alu, range, nibble, poseidon2, input,
         // then — only when this proof declares them — keccak and sha256, and finally the
@@ -2136,9 +2277,19 @@ impl Machine {
     /// [`Self::verifier_key`] with the modq table's declared height (private multisig phase 3) as
     /// the key's sixth component; `modq_log_height = 0` is the same cache slot `verifier_key`
     /// uses.
+    /// The poseidon2 table is at the tier's full `t + 2` ([`VerifierKeyShape::full_height`]); a
+    /// proof that declares a shorter one is verified under [`Self::verifier_key_for`] its shape.
     #[allow(clippy::too_many_arguments)]
     pub fn verifier_key_with_modq(&self, tier: Tier, program_log_height: u8, input_log_height: u8, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, public_log_height: u8) -> Arc<CommonData<Config>> {
-        let key = (tier.0, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height);
+        self.verifier_key_for(VerifierKeyShape::full_height(tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height))
+    }
+
+    /// The verifier key for one shape — every declared height a key depends on, the poseidon2
+    /// table's included (constraint set 11). What `verify` uses; the caller has range-checked the
+    /// shape (`VerifierKeyShape::check`).
+    pub fn verifier_key_for(&self, shape: VerifierKeyShape) -> Arc<CommonData<Config>> {
+        let key = shape.key();
+        let tier = shape.tier;
         // The cache lock is held only to find or make the slot; the build runs outside it, and
         // `OnceLock::get_or_init` makes every concurrent caller of this shape wait for the one
         // build (#54's single flight) — a caller of another shape is never held up by it.
@@ -2149,26 +2300,28 @@ impl Machine {
             // of which proof happened to miss the cache first.
             let mem_log_height = tier.min_mem_log_height();
             self.key_builds.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Arc::new(ProverData::from_airs_and_degrees(&key_config(self.profile), &chips_with_modq(tier, keccak_log_height, sha256_log_height, modq_log_height), &self.log_ext_degrees_with_modq(tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height, mem_log_height)).common)
+            Arc::new(ProverData::from_airs_and_degrees(&key_config(self.profile), &shape.chips(), &self.log_ext_degrees_for(shape, mem_log_height)).common)
         })
         .clone()
     }
 
     /// Number of `(tier, program_log_height, input_log_height, keccak_log_height,
-    /// sha256_log_height, modq_log_height, public_log_height)` verifier keys
+    /// sha256_log_height, modq_log_height, public_log_height, poseidon2_log_height)` verifier keys
     /// currently cached.
     pub fn cached_keys(&self) -> usize { self.keys.lock().unwrap().built() }
 
     /// The verifier key for one shape, as a [`VerifierKeyBlob`] another host can
     /// [`install`](Self::install_verifier_key) without building it. Builds the key (or takes it
-    /// from the cache) exactly as [`Self::verifier_key_with_modq`] does; the arguments are its.
-    #[allow(clippy::too_many_arguments)]
-    pub fn export_verifier_key_with_modq(&self, tier: Tier, program_log_height: u8, input_log_height: u8, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, public_log_height: u8) -> VerifierKeyBlob {
-        let common = self.verifier_key_with_modq(tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height);
+    /// from the cache) exactly as [`Self::verifier_key_for`] does. Constraint set 11: the shape
+    /// names the poseidon2 height (`VerifierKeyShape::of_proof` of a proof of the shape is the
+    /// simplest way to get it right), so an exporter cannot ship the full-height key for proofs
+    /// that declare a shorter table.
+    pub fn export_verifier_key(&self, shape: VerifierKeyShape) -> VerifierKeyBlob {
+        let common = self.verifier_key_for(shape);
         VerifierKeyBlob {
             format_version: VERIFIER_KEY_BLOB_FORMAT,
             profile: self.profile,
-            shape: VerifierKeyShape { tier, program_log_height, input_log_height, keccak_log_height, sha256_log_height, modq_log_height, public_log_height },
+            shape,
             constraint_set: CONSTRAINT_SET,
             common: common_to_bytes(&common),
         }
@@ -2189,11 +2342,11 @@ impl Machine {
         let s = blob.shape;
         // The shape is untrusted the way a proof header is: range-check it before it sizes
         // anything (`Tier` in `TIERS` first of all), at the tier's own memory floor.
-        check_declared_heights_with_modq(s.tier, s.program_log_height, s.input_log_height, s.keccak_log_height, s.sha256_log_height, s.modq_log_height, s.public_log_height, s.tier.min_mem_log_height()).map_err(InstallKeyError::Shape)?;
+        s.check().map_err(InstallKeyError::Shape)?;
         let common = common_from_bytes(&blob.common)?;
         // Structure: what this machine's chips and degree bits say for the shape — cheap, no trace.
-        let chips = chips_with_modq(s.tier, s.keccak_log_height, s.sha256_log_height, s.modq_log_height);
-        let degrees = self.log_ext_degrees_with_modq(s.tier, s.program_log_height, s.input_log_height, s.keccak_log_height, s.sha256_log_height, s.modq_log_height, s.public_log_height, s.tier.min_mem_log_height());
+        let chips = s.chips();
+        let degrees = self.log_ext_degrees_for(s, s.tier.min_mem_log_height());
         let bad = |m: String| Err(InstallKeyError::Structure(m));
         if common.lookups.len() != chips.len() { return bad(format!("{} lookups for {} instances", common.lookups.len(), chips.len())); }
         let Some(pre) = common.preprocessed.as_ref() else { return bad("no preprocessed commitment".into()) };
@@ -2294,7 +2447,7 @@ impl Machine {
         let narrow = traces.into_matrices();
         let blinds = crate::tables::blind::fresh(narrow.len());
         let wide = narrow.into_iter().zip(&blinds).map(|(m, b)| crate::tables::blind::widen_owned(m, b)).collect();
-        Ok((self.prove_wide(&head, wide, tier, tier.poseidon2_height(), |cfg, instances, prover_data| prove_batch(cfg, instances, prover_data)), exec))
+        Ok((self.prove_wide(&head, wide, tier, prove_live), exec))
     }
 
     /// NOTE: the body below is duplicated, deliberately, by `prove_on` (the generic-over-config
@@ -2325,7 +2478,7 @@ impl Machine {
     /// blinds that do not balance (`tests/cheating.rs`) are refused like any other unbalanced bus.
     #[doc(hidden)]
     pub fn prove_traces_with_blinds(&self, _program: &Program, traces: &Traces, tier: Tier, blinds: &[crate::tables::blind::Blind]) -> Proof {
-        self.prove_traces_via(traces, tier, blinds, |cfg, instances, prover_data| prove_batch(cfg, instances, prover_data))
+        self.prove_traces_via(traces, tier, blinds, prove_live)
     }
 
     /// Cheating-suite hook (`cheating` feature only; audit CS9-2): [`Self::prove_traces`] with the
@@ -2341,17 +2494,17 @@ impl Machine {
     #[cfg(feature = "cheating")]
     #[doc(hidden)]
     pub fn prove_traces_without_self_check(&self, _program: &Program, traces: &Traces, tier: Tier) -> Proof {
-        use p3_batch_stark::{prove_batch_with_layout_and_self_check, QuotientLayout, SelfCheck};
+        use p3_batch_stark::{prove_batch_with_layout_and_self_check, SelfCheck};
         let blinds = crate::tables::blind::fresh(traces.as_slice().len());
         self.prove_traces_via(traces, tier, &blinds, |cfg, instances, prover_data| {
-            prove_batch_with_layout_and_self_check(cfg, instances, prover_data, QuotientLayout::PerChunk, SelfCheck::Skip)
+            prove_batch_with_layout_and_self_check(cfg, instances, prover_data, QUOTIENT_LAYOUT, SelfCheck::Skip)
         })
     }
 
     /// The one body behind [`Self::prove_traces_with_blinds`] and
     /// [`Self::prove_traces_without_self_check`]: the instances, the `i == 1` public-values slot and
-    /// the `key_config`/`self.config` split, with `prove` the batch prover call itself — `prove_batch`
-    /// on every honest path.
+    /// the `key_config`/`self.config` split, with `prove` the batch prover call itself —
+    /// [`prove_live`] (`prove_batch_with_layout` under [`QUOTIENT_LAYOUT`]) on every honest path.
     fn prove_traces_via(
         &self,
         traces: &Traces,
@@ -2359,37 +2512,24 @@ impl Machine {
         blinds: &[crate::tables::blind::Blind],
         prove: impl for<'a> FnOnce(&'a Config, &'a [StarkInstance<'a, Config, Chip>], &'a ProverData<Config>) -> BatchProof<Config>,
     ) -> Proof {
-        self.prove_traces_at(traces, tier, blinds, tier.poseidon2_height(), prove)
-    }
-
-    /// [`Self::prove_traces_via`] with the poseidon2 table's height as an argument —
-    /// `tier.poseidon2_height()` on every current-set path; see [`chips_at`].
-    pub(crate) fn prove_traces_at(
-        &self,
-        traces: &Traces,
-        tier: Tier,
-        blinds: &[crate::tables::blind::Blind],
-        poseidon2_height: usize,
-        prove: impl for<'a> FnOnce(&'a Config, &'a [StarkInstance<'a, Config, Chip>], &'a ProverData<Config>) -> BatchProof<Config>,
-    ) -> Proof {
         assert_eq!(traces.as_slice().len(), blinds.len(), "one blind per instance");
         let wide: Vec<RowMajorMatrix<Val>> = traces.as_slice().iter().zip(blinds).map(|(m, b)| crate::tables::blind::widen(m, b)).collect();
-        self.prove_wide(&traces.head(), wide, tier, poseidon2_height, prove)
+        self.prove_wide(&traces.head(), wide, tier, prove)
     }
 
     /// The batch proof of a trace set already at its committed width — `wide`, one matrix per chip
     /// in `chips()` order, each with its blind columns — and `traces`' public values and heights.
-    /// The body of [`Self::prove_traces_at`] (which copies a borrowed trace set to get `wide`) and
+    /// The body of [`Self::prove_traces_via`] (which copies a borrowed trace set to get `wide`) and
     /// of `prove_salted_with` (which widens its own in place).
     fn prove_wide(
         &self,
         traces: &TraceHead,
         wide: Vec<RowMajorMatrix<Val>>,
         tier: Tier,
-        poseidon2_height: usize,
         prove: impl for<'a> FnOnce(&'a Config, &'a [StarkInstance<'a, Config, Chip>], &'a ProverData<Config>) -> BatchProof<Config>,
     ) -> Proof {
-        let airs = chips_at(tier, traces.keccak_log_height, traces.sha256_log_height, traces.modq_log_height, poseidon2_height);
+        let shape = traces.shape(tier);
+        let airs = shape.chips();
         // M4.2 (Task 6): `keccak_log_height` picks the chip set and `keccak` supplies the
         // traces, so the two must agree — a mismatch would `zip` short and silently prove a
         // different batch than the degree bits describe.
@@ -2419,16 +2559,10 @@ impl Machine {
         // ZKVM-110: that data is now taken from the prover cache (`prover_key`, whose doc comment
         // has why reusing it across proofs changes nothing a proof hides) instead of being rebuilt
         // here on every prove.
-        // The cache is keyed on the current set's shape, whose poseidon2 table is the tier's full
-        // height; a `next-set` proof with a declared, shorter poseidon2 table (ZKVM-112) builds
-        // its own, uncached, exactly as before the cache.
-        let prover_data = if poseidon2_height == tier.poseidon2_height() {
-            self.prover_key(tier, traces.program_log_height, traces.input_log_height, traces.keccak_log_height, traces.sha256_log_height, traces.modq_log_height, traces.public_log_height)
-        } else {
-            Arc::new(ProverData::from_airs_and_degrees(&key_config(self.profile), &airs, &self.log_ext_degrees_at(tier, traces.program_log_height, traces.input_log_height, traces.keccak_log_height, traces.sha256_log_height, traces.modq_log_height, traces.public_log_height, traces.mem_log_height, poseidon2_height)))
-        };
+        // Keyed on the whole shape, the declared poseidon2 height included (constraint set 11).
+        let prover_data = self.prover_key(shape);
         let batch = prove(&self.config, &instances, &prover_data);
-        Proof { tier, program_log_height: traces.program_log_height, input_log_height: traces.input_log_height, keccak_log_height: traces.keccak_log_height, sha256_log_height: traces.sha256_log_height, modq_log_height: traces.modq_log_height, public_log_height: traces.public_log_height, mem_log_height: traces.mem_log_height, public_values: traces.public_values.iter().map(|x| x.as_canonical_u64()).collect(), batch }
+        Proof { tier, program_log_height: traces.program_log_height, input_log_height: traces.input_log_height, keccak_log_height: traces.keccak_log_height, sha256_log_height: traces.sha256_log_height, modq_log_height: traces.modq_log_height, public_log_height: traces.public_log_height, mem_log_height: traces.mem_log_height, poseidon2_log_height: traces.poseidon2_log_height, public_values: traces.public_values.iter().map(|x| x.as_canonical_u64()).collect(), batch }
     }
 
     /// Prove on `backend`. `Backend::Cpu` is exactly `prove`; the other backends run the same
@@ -2508,7 +2642,8 @@ impl Machine {
             }
         };
         let traces = build_traces_salted_with(program, inputs, public, salt, &exec, tier, ProveOptions::default())?;
-        let airs = chips_with_modq(tier, traces.keccak_log_height, traces.sha256_log_height, traces.modq_log_height);
+        let shape = traces.shape(tier);
+        let airs = shape.chips();
         // M4.2 (Task 6): `keccak_log_height` picks the chip set and `keccak` supplies the
         // traces, so the two must agree — a mismatch would `zip` short and silently prove a
         // different batch than the degree bits describe.
@@ -2529,14 +2664,15 @@ impl Machine {
         // ZKVM-110: this path still builds its preprocessed data on every prove. `Machine`'s prover
         // cache holds the CPU `Config`'s `ProverData`; a backend's is a different type (its own
         // Merkle tree and, on CUDA, device handles), so caching it is that backend's own work.
-        let prover_data = ProverData::from_airs_and_degrees(key_cfg, &airs, &self.log_ext_degrees_with_modq(tier, traces.program_log_height, traces.input_log_height, traces.keccak_log_height, traces.sha256_log_height, traces.modq_log_height, traces.public_log_height, traces.mem_log_height));
+        let prover_data = ProverData::from_airs_and_degrees(key_cfg, &airs, &self.log_ext_degrees_for(shape, traces.mem_log_height));
         // The engines panic (rather than return) on a device failure — `CudaHashEngine::ok`
         // and friends — so a backend fault must not take the caller's process down with it.
-        let batch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| prove_batch(cfg, &instances, &prover_data)))
+        // Constraint set 11 (ZKVM-111): the live quotient layout, as `prove_live` on the CPU.
+        let batch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| p3_batch_stark::prove_batch_with_layout(cfg, &instances, &prover_data, QUOTIENT_LAYOUT)))
             .map_err(|p| ProveError::Backend(panic_message(p)))?;
         let bytes = postcard::to_allocvec(&batch).map_err(|e| ProveError::Backend(format!("proof serialise: {e}")))?;
         let batch: BatchProof<Config> = postcard::from_bytes(&bytes).map_err(|e| ProveError::Backend(format!("proof convert: {e}")))?;
-        Ok((Proof { tier, program_log_height: traces.program_log_height, input_log_height: traces.input_log_height, keccak_log_height: traces.keccak_log_height, sha256_log_height: traces.sha256_log_height, modq_log_height: traces.modq_log_height, public_log_height: traces.public_log_height, mem_log_height: traces.mem_log_height, public_values: traces.public_values.iter().map(|x| x.as_canonical_u64()).collect(), batch }, exec))
+        Ok((Proof { tier, program_log_height: traces.program_log_height, input_log_height: traces.input_log_height, keccak_log_height: traces.keccak_log_height, sha256_log_height: traces.sha256_log_height, modq_log_height: traces.modq_log_height, public_log_height: traces.public_log_height, mem_log_height: traces.mem_log_height, poseidon2_log_height: traces.poseidon2_log_height, public_values: traces.public_values.iter().map(|x| x.as_canonical_u64()).collect(), batch }, exec))
     }
 
     /// M3.4: takes `hc`, not the program — the verifier no longer holds the program at all
@@ -2549,27 +2685,13 @@ impl Machine {
     /// matching-but-different program producing the same `hc`, a genuine hash collision, not
     /// a free forgery.
     pub fn verify(&self, hc: &[u32; 8], proof: &Proof) -> Result<(), VerifyError> {
-        #[cfg(feature = "next-set")]
-        {
-            self.verify_under(hc, proof, QUOTIENT_LAYOUT)
-        }
-        #[cfg(not(feature = "next-set"))]
-        {
-            self.verify_under(hc, proof)
-        }
+        self.verify_under(hc, proof, QUOTIENT_LAYOUT)
     }
 
-    /// [`Self::verify`]'s body. Under `next-set` it takes the quotient layout the batch verifier
-    /// lists the quotient round under: `verify` passes `QUOTIENT_LAYOUT` (`PerChunk`, for which the
-    /// fork's `verify_batch_with_layout` is `verify_batch`) and only `verify_with_layout` passes
-    /// anything else (ZKVM-111). Without the feature it calls upstream's `verify_batch`, so a crate
-    /// that depends on this one does not need the fork.
-    fn verify_under(
-        &self,
-        hc: &[u32; 8],
-        proof: &Proof,
-        #[cfg(feature = "next-set")] layout: p3_batch_stark::QuotientLayout,
-    ) -> Result<(), VerifyError> {
+    /// [`Self::verify`]'s body, with the quotient layout the batch verifier lists the quotient
+    /// round under: `verify` passes [`QUOTIENT_LAYOUT`] (`PerInstance` since constraint set 11) and
+    /// only the test hook `verify_with_layout` passes anything else.
+    fn verify_under(&self, hc: &[u32; 8], proof: &Proof, layout: p3_batch_stark::QuotientLayout) -> Result<(), VerifyError> {
         check_public_values(hc, proof)?;
         // M4.2 (Task 5 review): every range check on the proof's declared shape, in one place
         // and before anything is sized from it — `check_declared_heights`' doc comment has the
@@ -2578,7 +2700,8 @@ impl Machine {
         // attacker would have to do to reach the equality check below) costs the verifier a
         // handful of comparisons rather than a multi-second — at an absurd declared height,
         // multi-minute — preprocessed-commitment recomputation. `tests/cheating.rs` observes
-        // exactly that as `cached_keys() == 0` after a rejection.
+        // exactly that as `cached_keys() == 0` after a rejection. Constraint set 11 adds the
+        // declared poseidon2 height to the checks (`check_poseidon2_log_height`).
         check_declared_heights_with_modq(
             proof.tier,
             proof.program_log_height,
@@ -2588,6 +2711,7 @@ impl Machine {
             proof.modq_log_height,
             proof.public_log_height,
             proof.mem_log_height,
+            proof.poseidon2_log_height,
         )?;
         // ISA-1 residual (randprotocol/fullnode#53): the claimed entry pc plus the declared (and,
         // above, range-checked) program table must end at or below 2^32 — the prover's own
@@ -2602,35 +2726,31 @@ impl Machine {
         // the honest zero — one encoding per proof (`check_commit_pow_witnesses`). A comparison per
         // round, so it goes with the other cheap checks, before the key is built.
         check_commit_pow_witnesses(proof)?;
+        let shape = VerifierKeyShape::of_proof(proof);
         // M4.2 (Task 6): a `Vec` comparison, so this is simultaneously the check that
         // `degree_bits.len()` equals the batch's chip count — eight without a keccak table, nine
-        // with one — and the check that every declared height matches. A proof that claims
-        // `keccak_log_height = 0` while carrying nine instances (or vice versa) fails here,
-        // before `chips` builds anything.
-        if proof.batch.degree_bits != self.log_ext_degrees_with_modq(proof.tier, proof.program_log_height, proof.input_log_height, proof.keccak_log_height, proof.sha256_log_height, proof.modq_log_height, proof.public_log_height, proof.mem_log_height) { return Err(VerifyError::Tier); }
-        let airs = chips_with_modq(proof.tier, proof.keccak_log_height, proof.sha256_log_height, proof.modq_log_height);
+        // with one — and the check that every declared height matches (the poseidon2 table's
+        // too, since constraint set 11). A proof that claims `keccak_log_height = 0` while
+        // carrying nine instances (or vice versa) fails here, before `chips` builds anything.
+        if proof.batch.degree_bits != self.log_ext_degrees_for(shape, proof.mem_log_height) { return Err(VerifyError::Tier); }
+        let airs = shape.chips();
         let pv_vals: Vec<Val> = proof.public_values.iter().map(|x| Val::from_u64(*x)).collect();
         let pvs: Vec<Vec<Val>> = (0..airs.len()).map(|i| if i == 1 { pv_vals.clone() } else { vec![] }).collect();
-        let common = self.verifier_key_with_modq(proof.tier, proof.program_log_height, proof.input_log_height, proof.keccak_log_height, proof.sha256_log_height, proof.modq_log_height, proof.public_log_height);
-        #[cfg(feature = "next-set")]
-        let checked = p3_batch_stark::verify_batch_with_layout(&self.config, &airs, &proof.batch, &pvs, &common, layout);
-        #[cfg(not(feature = "next-set"))]
-        let checked = verify_batch(&self.config, &airs, &proof.batch, &pvs, &common);
-        checked.map_err(|e| VerifyError::Batch(format!("{e:?}")))
+        let common = self.verifier_key_for(shape);
+        p3_batch_stark::verify_batch_with_layout(&self.config, &airs, &proof.batch, &pvs, &common, layout).map_err(|e| VerifyError::Batch(format!("{e:?}")))
     }
 
-    /// The next set's verifier for a proof whose quotient chunks were committed under `layout`
-    /// (ZKVM-111; `docs/05-roadmap.md`). Opt-in: the live verifier is [`Self::verify`], which
-    /// accepts `PerChunk` proofs only, and a verifier must not let a proof choose how it is
-    /// checked — a caller of this function has decided the layout out of band.
-    #[cfg(feature = "next-set")]
+    /// A test hook (`tests/quotient_layout.rs`): [`Self::verify`] with the batch verifier told the
+    /// quotient layout. The live verifier is `verify`, which accepts [`QUOTIENT_LAYOUT`] proofs
+    /// only; a verifier must never let a proof choose how it is checked.
+    #[doc(hidden)]
     pub fn verify_with_layout(&self, hc: &[u32; 8], proof: &Proof, layout: p3_batch_stark::QuotientLayout) -> Result<(), VerifyError> {
         self.verify_under(hc, proof, layout)
     }
 
-    /// The next set's prover under `layout` (ZKVM-111): [`Self::prove_traces`] with the batch
-    /// prover told how to commit the quotient chunks. `PerChunk` is `prove_traces`.
-    #[cfg(feature = "next-set")]
+    /// A test hook (`tests/quotient_layout.rs`): [`Self::prove_traces`] with the batch prover told
+    /// how to commit the quotient chunks. [`QUOTIENT_LAYOUT`] is `prove_traces`.
+    #[doc(hidden)]
     pub fn prove_traces_with_layout(&self, traces: &Traces, tier: Tier, layout: p3_batch_stark::QuotientLayout) -> Proof {
         let blinds = crate::tables::blind::fresh(traces.as_slice().len());
         self.prove_traces_via(traces, tier, &blinds, |cfg, instances, prover_data| p3_batch_stark::prove_batch_with_layout(cfg, instances, prover_data, layout))
@@ -2707,7 +2827,7 @@ mod key_cache_tests {
     #[test]
     fn a_pinned_entry_is_never_evicted() {
         let mut c = KeyCache { capacity: 4, ..KeyCache::default() };
-        let k = |i: u8| (10usize, i, 7, 0, 0, 0, 7);
+        let k = |i: u8| (10usize, i, 7, 0, 0, 0, 7, 12);
         c.slot(k(0));
         c.pin(&k(0));
         for i in 1..100 { c.slot(k(i)); }
@@ -2788,24 +2908,25 @@ mod prover_cache_tests {
     }
 
     /// The key is the whole of what the data depends on: change any one component — the constraint
-    /// set, the profile, or any of the seven shape components — and the cache hands out a different
+    /// set, the profile, or any of the eight shape components — and the cache hands out a different
     /// slot, never the first key's data; the same key gets its own back.
     #[test]
     fn a_key_differing_in_any_component_never_gets_another_keys_data() {
-        let base = ProverKey { constraint_set: CONSTRAINT_SET, profile: FriProfile::Test, shape: (10, 7, 7, 0, 0, 0, 7) };
+        let base = ProverKey { constraint_set: CONSTRAINT_SET, profile: FriProfile::Test, shape: (10, 7, 7, 0, 0, 0, 7, 12) };
         let mut others = vec![
             ProverKey { constraint_set: CONSTRAINT_SET + 1, ..base },
             ProverKey { profile: FriProfile::Production, ..base },
         ];
         let s = base.shape;
         others.extend([
-            (12, s.1, s.2, s.3, s.4, s.5, s.6),
-            (s.0, 8, s.2, s.3, s.4, s.5, s.6),
-            (s.0, s.1, 8, s.3, s.4, s.5, s.6),
-            (s.0, s.1, s.2, 7, s.4, s.5, s.6),
-            (s.0, s.1, s.2, s.3, 7, s.5, s.6),
-            (s.0, s.1, s.2, s.3, s.4, 10, s.6),
-            (s.0, s.1, s.2, s.3, s.4, s.5, 8),
+            (12, s.1, s.2, s.3, s.4, s.5, s.6, s.7),
+            (s.0, 8, s.2, s.3, s.4, s.5, s.6, s.7),
+            (s.0, s.1, 8, s.3, s.4, s.5, s.6, s.7),
+            (s.0, s.1, s.2, 7, s.4, s.5, s.6, s.7),
+            (s.0, s.1, s.2, s.3, 7, s.5, s.6, s.7),
+            (s.0, s.1, s.2, s.3, s.4, 10, s.6, s.7),
+            (s.0, s.1, s.2, s.3, s.4, s.5, 8, s.7),
+            (s.0, s.1, s.2, s.3, s.4, s.5, s.6, 8),
         ].map(|shape| ProverKey { shape, ..base }));
         let mut c = ByteLru::<ProverKey, usize>::new(1 << 20);
         let first = c.slot(base);
@@ -2837,8 +2958,12 @@ mod prover_cache_tests {
             .flat_map(|i| crate::sha256::sha256(&postcard::to_allocvec(&mmcs.open_batch(i, tree)).expect("an opening serialises")))
             .collect()
     }
+    fn shape_of(s: KeyShape) -> VerifierKeyShape {
+        VerifierKeyShape { tier: Tier(s.0), program_log_height: s.1, input_log_height: s.2, keccak_log_height: s.3, sha256_log_height: s.4, modq_log_height: s.5, public_log_height: s.6, poseidon2_log_height: s.7 }
+    }
     fn build(m: &Machine, s: KeyShape, mem_log_height: u8) -> ProverData<Config> {
-        ProverData::from_airs_and_degrees(&key_config(m.profile), &chips_with_modq(Tier(s.0), s.3, s.4, s.5), &m.log_ext_degrees_with_modq(Tier(s.0), s.1, s.2, s.3, s.4, s.5, s.6, mem_log_height))
+        let shape = shape_of(s);
+        ProverData::from_airs_and_degrees(&key_config(m.profile), &shape.chips(), &m.log_ext_degrees_for(shape, mem_log_height))
     }
 
     /// What makes the cache safe to have at all: the prover's preprocessed data is a function of
@@ -2848,7 +2973,7 @@ mod prover_cache_tests {
     #[test]
     fn two_builds_of_one_key_are_the_same_bytes() {
         let m = Machine::new(FriProfile::Test);
-        for shape in [(10usize, 7u8, 7u8, 0u8, 0u8, 0u8, 7u8), (10, 7, 7, 7, 7, 0, 7)] {
+        for shape in [(10usize, 7u8, 7u8, 0u8, 0u8, 0u8, 7u8, 12u8), (10, 7, 7, 7, 7, 0, 7, 8)] {
             let (a, b) = (build(&m, shape, Tier(shape.0).min_mem_log_height()), build(&m, shape, Tier(shape.0).min_mem_log_height()));
             assert_eq!(common_to_bytes(&a.common), common_to_bytes(&b.common));
             assert!(tree_bytes(&a) == tree_bytes(&b), "the preprocessed tree differs between two builds of {shape:?}");
@@ -2861,7 +2986,7 @@ mod prover_cache_tests {
     #[test]
     fn prover_data_is_the_same_at_every_memory_height() {
         let m = Machine::new(FriProfile::Test);
-        let shape = (10usize, 7u8, 7u8, 0u8, 0u8, 0u8, 7u8);
+        let shape = (10usize, 7u8, 7u8, 0u8, 0u8, 0u8, 7u8, 8u8);
         let floor = Tier(10).min_mem_log_height();
         let at_floor = build(&m, shape, floor);
         for mem in [floor + 1, floor + 3] {
@@ -2878,25 +3003,25 @@ mod prover_cache_tests {
     #[test]
     fn the_machine_serves_each_shape_its_own_data_across_evictions() {
         let m = Machine::new(FriProfile::Test);
-        let shapes = [(10usize, 7u8, 7u8, 0u8, 0u8, 0u8, 7u8), (10, 7, 7, 7, 0, 0, 7), (10, 7, 7, 0, 7, 0, 7), (10, 8, 7, 0, 0, 0, 7)];
+        let shapes = [(10usize, 7u8, 7u8, 0u8, 0u8, 0u8, 7u8, 12u8), (10, 7, 7, 7, 0, 0, 7, 12), (10, 7, 7, 0, 7, 0, 7, 12), (10, 8, 7, 0, 0, 0, 7, 12), (10, 7, 7, 0, 0, 0, 7, 8)];
         let fresh: Vec<_> = shapes.iter().map(|s| build(&m, *s, Tier(s.0).min_mem_log_height())).collect();
         assert!(tree_bytes(&fresh[0]) != tree_bytes(&fresh[1]) && tree_bytes(&fresh[0]) != tree_bytes(&fresh[2]) && tree_bytes(&fresh[1]) != tree_bytes(&fresh[2]), "the plain, keccak and sha256 shapes commit different trees, so serving one for another would show");
         let largest = fresh.iter().map(prover_data_bytes).max().unwrap();
         m.set_prover_key_budget(largest);
         for round in 0..3 {
             for (s, want) in shapes.iter().zip(&fresh) {
-                let got = m.prover_key(Tier(s.0), s.1, s.2, s.3, s.4, s.5, s.6);
+                let got = m.prover_key(shape_of(*s));
                 assert!(tree_bytes(&got) == tree_bytes(want), "round {round}: {s:?} was served another tree");
                 assert_eq!(common_to_bytes(&got.common), common_to_bytes(&want.common), "round {round}: {s:?}");
-                assert_eq!(common_to_bytes(&got.common), common_to_bytes(&m.verifier_key_with_modq(Tier(s.0), s.1, s.2, s.3, s.4, s.5, s.6)), "round {round}: {s:?} against the verifier key");
+                assert_eq!(common_to_bytes(&got.common), common_to_bytes(&m.verifier_key_for(shape_of(*s))), "round {round}: {s:?} against the verifier key");
                 assert!(m.prover_key_bytes() <= largest, "the budget holds");
             }
         }
         // A hit is a hit: the same shape twice in a row builds once.
         let before = m.prover_key_builds();
         let s = shapes[0];
-        m.prover_key(Tier(s.0), s.1, s.2, s.3, s.4, s.5, s.6);
-        m.prover_key(Tier(s.0), s.1, s.2, s.3, s.4, s.5, s.6);
+        m.prover_key(shape_of(s));
+        m.prover_key(shape_of(s));
         assert_eq!(m.prover_key_builds(), before + 1);
     }
 }
@@ -2919,12 +3044,13 @@ mod fri_soundness_tests {
             query_proof_of_work_bits: FriProfile::Production.pow_bits(),
             mmcs: (),
         };
-        // The whitepaper table (Draft 3, Part III): 80 queries / blowup 8 / 20 grinding bits —
-        // conjectured `3·80+20 = 260` here, and ~86 bits on the *proven* proximity-gaps bound at
-        // these parameters (the reason the paper keeps q=80 rather than dropping to the
-        // conjectured-only minimum; see `FriProfile`'s doc comment). Audit ZM1, 2026-09-12.
-        assert_eq!(FriProfile::Production.num_queries(), 80);
-        assert_eq!(FriProfile::Production.pow_bits(), 20);
+        // Constraint set 11 (ZKVM-111): rate 1/4 — 92 queries / blowup 4 / 24 grinding bits,
+        // conjectured `2·92+24 = 208` here. The proven figure (the reason for 92 queries rather than
+        // the conjectured-only minimum, audit ZM1) is `tests/security.rs`'s, over this machine's
+        // chip shapes. Through set 10: 80 / 8 / 20.
+        assert_eq!(FriProfile::Production.num_queries(), 92);
+        assert_eq!(FriProfile::Production.pow_bits(), 24);
+        assert_eq!(LOG_BLOWUP, 2);
         assert!(fri.conjectured_soundness_bits() >= 100, "got {}", fri.conjectured_soundness_bits());
     }
 }

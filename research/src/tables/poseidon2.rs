@@ -165,8 +165,8 @@ pub fn permute_scalar(state: [F; 8]) -> [F; 8] {
 }
 
 /// [`permute_scalar`] over a caller's round constants: the same linear layers and S-box, so a
-/// candidate table (`poseidon2_constants_next`) can be checked against p3's permutation built
-/// from it without touching the table this chip commits to.
+/// table (`poseidon2_grain`'s derivation) can be checked against p3's permutation built from it
+/// without going through the table this chip commits to.
 pub fn permute_scalar_with(rc: &RoundConstants, state: [F; 8]) -> [F; 8] {
     let sbox_all = |s: [F; 8], round: [F; 8]| -> [F; 8] {
         core::array::from_fn(|i| {

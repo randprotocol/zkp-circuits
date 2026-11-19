@@ -13,8 +13,6 @@
 #
 # Regenerate with `scripts/regen-tree-fixtures.sh` (about 34 GB, about 30 minutes on 16 threads);
 # it prints the values to re-record. Then set `state = current` and update the two `recorded_*`.
-state = stale
-recorded_leaf_cpu_rows = 104556
-recorded_at = circuits 1ed3d69, 2026-10-11 (after the MODQ cpu column)
-stale_since = circuits 7fc3a82, 2026-10-12 (phase 5 moved the leaf program: 104 556 -> 88 486 rows), and again 2620ace, 2026-10-31 (constraint set 10: 88 493 rows)
-stale_pins = tree.rs T_INT_TEST; pins.json tree_test.step_int_cpu_rows, step_int_tier, step_leaf_reduce_rows_per_child, step_int_reduce_rows_per_child, step_proof_bytes_max, vk_leaf_0..3, vk_t_leaf_0..3, vk_int_0..3; tests/tree-test-genesis.json
+state = current
+recorded_leaf_cpu_rows = 81747
+recorded_at = circuits 3027e41, 2026-11-19 (constraint set 11; regenerated on a 128 GB host, 24 min, 18.95 GB peak)

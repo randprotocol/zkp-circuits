@@ -183,9 +183,9 @@ stale with them.
 - **In CI** (`tests/tree_status.rs`, no proofs): `state = current` with a leaf that has since
   moved is red, and `state = stale` must say since when and which pins. CI cannot run the tree
   tests themselves — a hosted runner cannot make the proofs under them.
-- **One command, on a host with the memory** (about 34 GB by the last measurement below, which
-  was at tier 19; the steps are tier 18 since phase 4 and the figure has not been re-taken —
-  the script records it):
+- **One command, on a host with the memory** (18.95 GB peak, 24 minutes on 16 threads, re-taken at
+  constraint set 11 on 2026-11-19 — `docs/measurements/2026-11-19-tree-test-fixtures-regen.log`;
+  the earlier 34 GB was at tier 19):
 
   ```sh
   recursion/scripts/regen-tree-fixtures.sh            # generate (step 1), then check (step 2)
@@ -409,7 +409,7 @@ cluster run is blocked by the pre-existing startup refusal of any aggregation ge
 
 **Host classes.** At rate 1/4 (docs/07 §4) a tier-21 proof projects at 122-197 GB, so the
 production leaves, steps and root run on the **256 GB** class, one proving process at a time
-(the 503 GB box a fallback). The test tree needs 34 GB (tier 19, measured), within 48 GB.
+(the 503 GB box a fallback). The test tree needs 18.95 GB (measured 2026-11-19, constraint set 11), within 48 GB.
 
 **Next lever.** The memory track (spec ruling 1), not the row count: a tier-21 step at 122-197 GB
 projected against the 64 GB target.

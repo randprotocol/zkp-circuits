@@ -483,4 +483,13 @@ fn msauth_at_the_weights() {
         assert_eq!((g.0, g.6, g.7), pinned[i], "M = {k}");
     }
     assert_eq!((word, word_set_10), (447_935, 436_159));
+    // Constraint set 11 (ZKVM-112): msauth's header declares the poseidon2 table at
+    // `PINNED_POSEIDON2_LOG_HEIGHT` (2^16 of 2^20), so the word its proofs carry is the declared
+    // header's ceiling: 3 · 2^11 for the permutations where the full table's was 3 · 2^15.
+    let declared = rand_zkvm::gas::gas_max_declared(MSAUTH_TIER, PINNED_KECCAK_LOG_HEIGHT, 0, PINNED_MODQ_LOG_HEIGHT, rand_zkvm::msauth::PINNED_POSEIDON2_LOG_HEIGHT);
+    assert_eq!(declared, word - 3 * (1 << 15) + 3 * (1 << 11));
+    assert_eq!(declared, 355_775);
+    for g in &got {
+        assert!(g.6 <= declared, "a run never passes its declared header's ceiling");
+    }
 }

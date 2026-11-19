@@ -329,7 +329,9 @@ mod gas_column_tests {
     #[test]
     fn a_default_proof_declares_the_ceiling_and_verifies() {
         let (p, proof) = common::fib_proof_tier_10();
-        assert_eq!(proof.public_values[pv::GAS], gas_max(Tier(10), proof.keccak_log_height, proof.sha256_log_height));
+        // Constraint set 11: the ceiling of the *declared* header, poseidon2 height included.
+        assert_eq!(proof.public_values[pv::GAS], rand_zkvm::gas::gas_max_declared(Tier(10), proof.keccak_log_height, proof.sha256_log_height, 0, proof.poseidon2_log_height));
+        assert!(proof.public_values[pv::GAS] < gas_max(Tier(10), 0, 0), "fib declares a short poseidon2 table");
         let m = Machine::new(FriProfile::Test);
         assert!(m.verify(&p.digest(), &proof).is_ok());
     }
@@ -386,7 +388,7 @@ mod gas_column_tests {
         let e = execute(&p, &[], &[], 10_000).unwrap();
         let gas = gas_of(&p, &[], &[], &e.events);
         let dflt = m.prove_with_options(&p, &[], &[], Some(Tier(10)), ProveOptions::default()).unwrap().0;
-        assert_eq!(dflt.public_values[pv::GAS], gas_max(Tier(10), dflt.keccak_log_height, dflt.sha256_log_height));
+        assert_eq!(dflt.public_values[pv::GAS], rand_zkvm::gas::gas_max_declared(Tier(10), dflt.keccak_log_height, dflt.sha256_log_height, 0, dflt.poseidon2_log_height));
         let tight = m.prove_with_options(&p, &[], &[], Some(Tier(10)), ProveOptions { gas_limit: Some(gas + 5), ..Default::default() }).unwrap().0;
         assert_eq!(tight.public_values[pv::GAS], gas + 5);
         assert!(m.verify(&p.digest(), &tight).is_ok());

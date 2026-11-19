@@ -407,11 +407,11 @@ commitment.)
   and ChaCha20-Poly1305 are the production choices; the KEM is
   post-quantum, in line with the whitepaper's accounting. Both live
   entirely outside the proof and are swappable under the crypto-agility
-  registry. The Poseidon2 permutation itself is the production
-  construction (`p3_poseidon2`/`p3_goldilocks`'s own round structure); only
-  its round constants (`machine::PERM_SEED`) are a fixed development seed,
-  not the published `GOLDILOCKS_POSEIDON2_RC_8_*` constants — swapping them
-  is a config change, not a rewrite (`docs/05-roadmap.md`).
+  registry. The Poseidon2 permutation is the production
+  construction (`p3_poseidon2`/`p3_goldilocks`'s own round structure) with,
+  since constraint set 11, the production round constants (the Grain
+  derivation, equal to the published `GOLDILOCKS_POSEIDON2_RC_8_*`;
+  `docs/05-roadmap.md` "ZKVM-107").
 - **Closed in M3.4.** `hc` is now an in-circuit public value — the program
   table's digest rows compute it with the Poseidon2 chip, and
   `Machine::verify(hc, proof)` checks it directly, no per-program verifier

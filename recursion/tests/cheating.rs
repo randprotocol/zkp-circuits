@@ -1328,6 +1328,7 @@ fn agg_shape_and_key(p: &rand_zkvm::machine::Proof) -> (ZkInnerShape, ZkInnerKey
         p.sha256_log_height,
         p.public_log_height,
         p.mem_log_height,
+        p.poseidon2_log_height,
     );
     let key = ZkInnerKey::of(FriProfile::Test, &shape);
     (shape, key)

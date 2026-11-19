@@ -166,7 +166,7 @@ pub fn measure_production_inner_proof() -> recursion::programs::CycleReport {
         p.proof.keccak_log_height,
         p.proof.sha256_log_height,
         p.proof.public_log_height,
-        p.proof.mem_log_height,
+        p.proof.mem_log_height, p.proof.poseidon2_log_height,
     );
     let key = InnerKey::of(FriProfile::Production, &shape);
     let vp = verify_rv32(&shape, &key, Checkpoints::Off);
@@ -196,7 +196,7 @@ pub fn measure_aggregate(n: usize, profile: FriProfile) -> recursion::programs::
         pr.keccak_log_height,
         pr.sha256_log_height,
         pr.public_log_height,
-        pr.mem_log_height,
+        pr.mem_log_height, pr.poseidon2_log_height,
     );
     let key = InnerKey::of(profile, &shape);
     let vp = verify_rv32n(&shape, &key, Checkpoints::Off);
@@ -294,10 +294,22 @@ pub fn committed_digest() -> String {
     if let Ok(s) = std::fs::read_to_string(&path) {
         return s.trim().to_string();
     }
+    let hex = production_digest_from_test_heights();
+    std::fs::write(&path, format!("{hex}\n")).expect("the digest file is writable");
+    hex
+}
+
+/// The shipped (production-shape) `verify_rv32` program's digest, built without a production
+/// proof: a proof's declared heights are a function of the bundle run, not of the FRI profile, so
+/// a Test-profile fixture's heights are the production proof's, and `InnerShape::of(Production, …)`
+/// over them is the production shape (constraint set 11: the poseidon2 height included). Nothing
+/// is proved at Production — only the shape, the key and the program are built.
+#[allow(dead_code)]
+pub fn production_digest_from_test_heights() -> String {
     use recursion::dsl::Checkpoints;
     use recursion::programs::verify_rv32;
     use recursion::shape::{InnerKey, InnerShape};
-    let p = bundle_proofs(FriProfile::Production, 1).pop().unwrap();
+    let p = bundle_proofs(FriProfile::Test, 1).pop().unwrap();
     let shape = InnerShape::of(
         FriProfile::Production,
         p.proof.tier,
@@ -307,12 +319,11 @@ pub fn committed_digest() -> String {
         p.proof.sha256_log_height,
         p.proof.public_log_height,
         p.proof.mem_log_height,
+        p.proof.poseidon2_log_height,
     );
     let key = InnerKey::of(FriProfile::Production, &shape);
     let vp = verify_rv32(&shape, &key, Checkpoints::Off);
-    let hex = recursion::programs::digest_hex(&vp.program);
-    std::fs::write(&path, format!("{hex}\n")).expect("the digest file is writable");
-    hex
+    recursion::programs::digest_hex(&vp.program)
 }
 
 #[allow(dead_code)]

@@ -75,11 +75,11 @@ def rust(initial, internal, terminal):
 if __name__ == "__main__":
     table = rust(*constants())
     if "--check" in sys.argv:
-        src = (pathlib.Path(__file__).resolve().parents[2] / "src" / "poseidon2_constants_next.rs").read_text()
+        src = (pathlib.Path(__file__).resolve().parents[2] / "src" / "poseidon2_constants.rs").read_text()
         want = [int(x, 16) for x in re.findall(r"0x[0-9a-f]{16}", table)]
         got = [int(x, 16) for x in re.findall(r"0x[0-9a-f]{16}", src.split("pub const INITIAL")[1].split("pub fn")[0])]
         if want != got:
-            sys.exit("poseidon2_constants_next.rs is NOT the Grain derivation")
-        print(f"ok: {len(got)} constants in poseidon2_constants_next.rs are the Grain derivation")
+            sys.exit("poseidon2_constants.rs is NOT the Grain derivation")
+        print(f"ok: {len(got)} constants in poseidon2_constants.rs are the Grain derivation")
     else:
         print(table)

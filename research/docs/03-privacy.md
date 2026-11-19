@@ -16,47 +16,50 @@ itself, in `p3-batch-stark-0.7.0/src/prover.rs:469` — `// TODO: This
 approach is only statistically ZK.` The gap is a fixed, quantifiable
 soundness/privacy tradeoff of the library's blinding technique, not a bug in
 this crate; closing it is upstream's work, not this milestone's. Poseidon2's
-round constants are likewise derived from a fixed development seed
-(`PERM_SEED` in `machine.rs`) rather than the published Goldilocks constants
-— a placeholder for the same reason: correct math, wrong constants for
-production. The production table is chosen and committed, not yet in use:
-`src/poseidon2_constants_next.rs` (the Poseidon paper's Grain derivation,
-equal to the table Plonky3 ships); `05-roadmap.md`, "ZKVM-107", has the
-switch-over.
+round constants are, since constraint set 11, the production table: the
+Poseidon paper's Grain derivation for these parameters, equal to the table
+Plonky3 ships (`src/poseidon2_constants.rs`; `05-roadmap.md`, "ZKVM-107").
+Through set 10 they were a fixed development draw (`PERM_SEED`, now only an
+opaque tag).
 
-`Machine::new` takes a `FriProfile`: `Production` (80 FRI queries, 20
+`Machine::new` takes a `FriProfile`: `Production` (92 FRI queries, 24
 proof-of-work bits, `max_log_arity: 3` — folding arity 8) or `Test` (16
-queries, 4 PoW bits, for a fast `cargo test`). Both use blowup 8 and the same
-hiding PCS; only the query count, grinding difficulty, and folding arity
-differ.
+queries, 4 PoW bits, for a fast `cargo test`). Both use blowup 4 (rate 1/4,
+since constraint set 11 — through set 10 it was blowup 8 with 80 queries and
+20 bits) and the same hiding PCS, and commit the quotient one matrix per
+instance (`machine::QUOTIENT_LAYOUT = PerInstance`); only the query count and
+grinding difficulty differ.
 
 | | queries | PoW bits | blowup | proven bits (unique decoding) | legacy `log_blowup·q + g` |
 | --- | --- | --- | --- | --- | --- |
-| `Production` | 80 | 20 | 8 | **86.41** | 260 — a formula's value, not a security level |
-| `Test` | 16 | 4 | 8 | 17.28 | 52 |
+| `Production` | 92 | 24 | 4 | **86.38** | 208 — a formula's value, not a security level |
+| `Test` | 16 | 4 | 4 | 14.85 | 36 |
+| set ≤ 10 `Production` | 80 | 20 | 8 | 86.41 | 260 |
 
 ### The security figure, stated once
 
 **This is the one place the figure is derived; every other mention should link here.**
 
-- **Proven: 86.41 bits** for this machine at `Production`. Under the unique-decoding
-  (proximity-gaps) bound each FRI query contributes `log2(2 / (1 + ρ))` bits at rate `ρ`, and
-  grinding adds its bits: `q · log2(2 / (1 + ρ)) + g = 80 · log2(2 / (1 + 1/8)) + 20 = 80 · 0.8301 +
-  20 = 86.41`. The recursion VM proves at rate 1/4 with 92 queries and 24 grinding bits:
-  `92 · log2(2 / (1 + 1/4)) + 24 = 92 · 0.6781 + 24 = 86.38`
-  (`recursion/docs/07-rvm-rate-quarter.md`, which also checks the figure with `p3-security` over the
-  rVM's real chip shapes).
+- **Proven: 86.38 bits** for this machine at `Production` (since constraint set 11). Under the
+  unique-decoding (proximity-gaps) bound each FRI query contributes `log2(2 / (1 + ρ))` bits at
+  rate `ρ`, and grinding adds its bits: `q · log2(2 / (1 + ρ)) + g = 92 · log2(2 / (1 + 1/4)) + 24
+  = 92 · 0.6781 + 24 = 86.38`. Through set 10 it was `80 · log2(2 / (1 + 1/8)) + 20 = 86.41`. The
+  recursion VM proves at the same 92/4/24 (`recursion/docs/07-rvm-rate-quarter.md`).
+  `tests/security.rs` checks the figure with `p3-security` over this machine's worst admitted
+  shape (tier 20, every chip at its maximum): 86.38 proven, unique decoding, the low-degree-test
+  term binding.
 - **The "260" this table used to call "conjectured" is not a number of bits of security.** It is
   the legacy ethSTARK expression `log_blowup · q + g = 3 · 80 + 20`, and it exceeds the 128 bits of
   the challenge field (Goldilocks²) and of the hash's collision resistance, which cap any soundness
   claim. `recursion/docs/07-rvm-rate-quarter.md` §1 computes `p3-security`'s conjectured bound for
-  the rVM at these FRI parameters as **95.44 bits**, bound by the field term and not by the rate; it
-  has not been computed separately for this machine's batch. `machine.rs`'
+  the rVM at these FRI parameters as **95.44 bits**; for this machine's worst shape
+  (`tests/security.rs`) it is **89.80 bits** at both the old and the new FRI parameters, bound by
+  a term the FRI parameters do not reach. `machine.rs`'
   `production_profile_meets_the_100_bit_conjectured_target` asserts the legacy expression is at
   least 100, which is a floor on a formula, not a claim of 260 or of 100 bits.
 - **Zero knowledge is statistical**, through `HidingFriPcs`, and Plonky3 0.7 says of its own
   batch prover `// TODO: This approach is only statistically ZK.` (the section above). That caveat
-  belongs beside the soundness figure: 86.41 is a soundness statement and says nothing about how
+  belongs beside the soundness figure: 86.38 is a soundness statement and says nothing about how
   much a proof hides.
 
 `Production` is the whitepaper's own parameter table (Draft 3, Part III: FRI

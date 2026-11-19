@@ -321,25 +321,27 @@ and passes when the rule lands.
    `docs/07-gas.md` has the method and the count; `tests/gas_cells.rs` holds every priced row to
    it, with `KNOWN_MISPRICED` empty.
 
-## ZKVM-107: the round-constant switch-over
+## ZKVM-107: the round-constant switch-over (live in set 11)
 
-The Poseidon2 round constants every hash here uses are still the development draw
-(`src/poseidon2_constants.rs`, "RandZK"). Their replacement is chosen and committed, and **not in
-use**: `src/poseidon2_constants_next.rs` holds the 86 constants the Poseidon paper's Grain LFSR
-gives for this permutation's own parameters (prime field, `x^7`, `n = 64`, `t = 8`, `R_F = 8`,
-`R_P = 22`). `src/poseidon2_grain.rs` is the generator, `tools/poseidon2_grain/grain.py` a second
-implementation in standard-library Python, and the table equals the one `p3-goldilocks 0.7.0`
-ships as `GOLDILOCKS_POSEIDON2_RC_8_*` (tests in `poseidon2_constants_next.rs` check all three).
-The round numbers, the S-box and both linear layers are the ones the `poseidon2` chip's AIR
-already implements, so the switch changes preprocessed constants and no constraint.
+**Live since constraint set 11.** The Poseidon2 round constants every hash here uses are the 86
+constants the Poseidon paper's Grain LFSR gives for this permutation's own parameters (prime
+field, `x^7`, `n = 64`, `t = 8`, `R_F = 8`, `R_P = 22`): `src/poseidon2_constants.rs` is that
+table, the development draw ("RandZK") is gone and `src/poseidon2_constants_next.rs` with it.
+`src/poseidon2_grain.rs` is the generator, `tools/poseidon2_grain/grain.py` a second
+implementation in standard-library Python (`--check` reads the live file), and the table equals
+the one `p3-goldilocks 0.7.0` ships as `GOLDILOCKS_POSEIDON2_RC_8_*` (tests in
+`poseidon2_constants.rs` and `poseidon2_grain.rs` check all three, and that the chip's arithmetic
+computes the permutation). The round numbers, the S-box and both linear layers are the ones the
+`poseidon2` chip's AIR already implemented, so the switch changed preprocessed constants and no
+constraint.
 
-Why it is not behind a switch today: this crate has one `CONSTRAINT_SET` number and one table,
-and the table is read by value in places a cargo feature in this crate cannot reach — the
-`#[path]` copy in `rand-zkvm-cuda`, the rVM's verifier program and its Poseidon2 precompile
-(`../recursion`), the published guest digests, the wallet and the full node. Carrying two live
-tables would mean a second set of every pin below for a configuration nothing runs. So the
-candidate is data plus tests, and the cut is the list below, done in one change with the other
-changes waiting on a new set (ZKVM-108, ZKVM-111, ZKVM-112, ZKVM-113).
+`PERM_SEED` (`0x5261_6e64_5a4b`, "RandZK") is **kept as an opaque tag**: it no longer seeds
+anything here, but `rand-zkvm-cuda`'s engines (`constants::permutation(seed)`,
+`CpuHashEngine::new`, `GpuProver::probe`, `gpu/ntt.rs::DEFAULT_PERM_SEED`) and
+`recursion/src/machine/backend.rs::PERM_SEED` key their device-side table on it, and
+`rand-zkvm-cuda/src/constants.rs` compiles this crate's table in by `#[path]` — so the tag says
+"this crate's table", not "this seed's draw", and renaming it would touch every engine for no
+change in behaviour.
 
 What the switch moves — every Poseidon2 output, so: every program digest `hc`, every input and
 public digest, every Merkle root and FRI commitment, every verifier key (the preprocessed
@@ -347,16 +349,18 @@ commitment and the `key_derivation_v2` salts, which are a Poseidon2 stream), not
 nullifiers, viewing-key derivations, storage roots, and the genesis hash. It can only ship as a
 new genesis.
 
-The cut, in order:
+The cut, as done for set 11 (each step's original wording kept, with what was done):
 
-1. `src/poseidon2_constants.rs`: replace `INITIAL`, `INTERNAL`, `TERMINAL` with
+1. Done — `src/poseidon2_constants.rs`: replace `INITIAL`, `INTERNAL`, `TERMINAL` with
    `poseidon2_constants_next`'s tables (or make that file the table and delete the old one);
    delete `the_table_is_the_seeded_draw`, move the Grain and Plonky3 tests over, replace the
    three known vectors with the candidate's (`KNOWN_VECTORS` there). `PERM_SEED` then names
    nothing: rename the key `rand-zkvm-cuda`'s engines take (`constants::permutation(seed)`,
    `CpuHashEngine::new`, `GpuProver::probe`, `gpu/ntt.rs::DEFAULT_PERM_SEED`,
-   `recursion/src/machine/backend.rs::PERM_SEED`) or keep it as an opaque tag, and say which.
-2. `machine::CONSTRAINT_SET`: bump, in the same commit.
+   `recursion/src/machine/backend.rs::PERM_SEED`) or keep it as an opaque tag, and say which
+   (kept, above).
+2. `machine::CONSTRAINT_SET`: 11, the set this cut joins (ZKVM-202's gas weights, below) — not
+   bumped again.
 3. `rand-zkvm-cuda`: it compiles the table in by `#[path]`, so it follows step 1 with no edit;
    re-run `tests/poseidon2.rs` (host twin and mock driver) and, on a device, `gpu_hw.rs`.
    `gpu-kernels` takes the constants as an uploaded buffer and has none of its own.
@@ -366,12 +370,12 @@ The cut, in order:
 5. Re-pin in this crate: `tests/verifier_key.rs` (every key), `tests/key_derivation_v2.rs`,
    `tests/hash_domains.rs`, `tests/key_blob.rs`, the `hc` values in `tests/` and
    `../guests-compiled/bin/*.sha256` consumers, `../evm2rv` and `../sbpf2rv`'s published `hc`s.
-6. Guests: no guest binary changes (a guest hashes through the syscall, not in software) but
+6. Guests (re-pinned in this change): no guest binary changes (a guest hashes through the syscall, not in software) but
    every published `hc` of one does. Check with `rand-guest check`.
-7. Downstream, at the same genesis: the full node's vendored copy and its pins
+7. **Not in this repository, owed at the genesis:** the full node's vendored copy and its pins
    (`CIRCUITS_PIN`, admitted keys, genesis), the wallet's WASM and its pinned digests, randscan's
    WASM, the bridge's note commitments, durian's program pins.
-8. Docs: remove the placeholder entries (`AGENTS.md` "Known development placeholders",
+8. Done — docs: remove the placeholder entries (`AGENTS.md` "Known development placeholders",
    `03-privacy.md` on the constants, `06-viewing-keys.md`), and update
    `02-tables-and-buses.md`'s description of where the constants come from.
 
@@ -442,32 +446,36 @@ table) — `tests/verifier_key.rs` re-pinned, in the same shape as constraint se
 widening. **Every verifier key changed; ships only with a chain cut** — chain 18 in the fullnode's
 plan, alongside Phase 1's per-instruction fee schedule.
 
-## ZKVM-112: a proof-declared poseidon2 table height (opt-in, `next-set`)
+## ZKVM-112: a proof-declared poseidon2 table height (live in set 11)
 
-The poseidon2 table is `2^(t+2)` rows at every tier whether or not the guest hashes. The next
-constraint set lets the proof declare its height, as it already declares the program, input,
-keccak, sha256, modq and memory tables'. That is built, behind the cargo feature `next-set`
-(`src/next_set.rs`, `tests/next_set.rs`), and **not part of the live machine**: without the
-feature nothing is compiled, and with it `machine::Machine`, its proofs and its keys are the
-same. The only edits to `machine.rs` are three functions that take the poseidon2 height as an
-argument (`chips_at`, `log_ext_degrees_at`, `prove_traces_at`); every current-set caller passes
-`tier.poseidon2_height()`, and `tests/verifier_key.rs` / `tests/key_blob.rs` pass unchanged.
+Through set 10 the poseidon2 table was `2^(t+2)` rows at every tier whether or not the guest
+hashed. **Since constraint set 11 the proof declares its height**, as it already declared the
+program, input, keccak, sha256, modq and memory tables'. The `next-set` prototype
+(`src/next_set.rs`, `tests/next_set.rs`) is gone; its tests moved to `tests/poseidon2_height.rs`
+against the live machine.
 
-What the opt-in set does:
+What is live:
 
-- `next_set::Proof` is the current proof plus one header byte, `poseidon2_log_height`.
+- `machine::Proof`, `Traces`, `TraceHead` and `VerifierKeyShape` carry `poseidon2_log_height`
+  (the proof's after `mem_log_height`). The key tuple has eight components and
+  `VERIFIER_KEY_BLOB_FORMAT` is 2.
 - Admitted heights are `t + 2, t, t − 2, …` down to the private-data floor: `8, 10, …, t + 2`
   at the even tiers in `TIERS`, `(t − 4) / 2` shapes per tier (8 at tier 20) where every height
-  from 7 would be `t − 4`. A coarser set means fewer verifier keys, at the price of a table up
-  to four times taller than the run needs.
-- `next_set::Machine::verify` range-checks the declared height with the other declared
-  heights, before the degree-bits comparison and before any key build
-  (`a_height_outside_the_admitted_set_is_refused_before_any_key_is_built` counts zero builds
-  over every non-admitted `u8`).
-- The height is the eighth component of the key tuple. At `t + 2` the key is the current key
-  and a proof made there verifies on the live machine, so the chip is the same chip.
+  from 7 would be `t − 4`. `machine::POSEIDON2_HEIGHT_STEP = 2` (item 6 below).
+- `check_declared_heights_with_modq` range-checks it last (`check_poseidon2_log_height`:
+  `Poseidon2HeightBelowFloor`, `Poseidon2HeightExceedsTier`, `Poseidon2HeightNotAdmitted`),
+  before the degree-bits comparison and before any key build
+  (`a_height_outside_the_admitted_set_is_refused_before_any_key_is_built` counts zero builds).
+- The prover declares the smallest admitted height that holds the run
+  (`Tier::poseidon2_log_height_for`), or `ProveOptions::poseidon2_log_height` if set (which must
+  be admitted and hold the run, else `TooManyPoseidon2Permutations`); an explicit gas limit above
+  that height's ceiling raises it by admitted steps until the header can carry the limit.
+  `msauth` pins it (`PINNED_POSEIDON2_LOG_HEIGHT = 16`, of the full 2^20).
+- The gas ceiling's permutation term follows the declared height:
+  `gas::gas_max_declared(t, klh, slh, mlh, p2lh)`, `3 · 2^p2lh / 32`; the six-height
+  `gas_max_with_modq` is the full-height one.
 - The poseidon2 AIR is untouched; only the table's height and its preprocessed trace's height
-  change.
+  change. At `t + 2` the key is the full-height key `verifier_key(tier, …)` builds.
 
 Measured (committed main-trace cells; no blind, LogUp or preprocessed columns):
 
@@ -484,19 +492,26 @@ run's main cells today, not the 30 to 40 % the review estimated, and the run can
 guest: a large program pays for its own `hc` on every call. Peak heap and prove time were not
 measured, and msauth was not measured at all.
 
-Left for the cut:
+Done at the cut (the list as it stood, each item's outcome):
 
-1. Move `poseidon2_log_height` into `machine::Proof`, `Traces` and `VerifierKeyShape`, with the
-   range check inside `check_declared_heights_with_modq`; bump `CONSTRAINT_SET`.
-2. `gas::gas_max`: the permutation term can follow the declared height, as the keccak term does.
-3. `../recursion`: `shape.rs` reads a seven-component tuple from an RV32 proof and
-   `programs/constraints.rs` builds `chips(tier, …)`; both need the eighth component, and the
-   rVM's verifier program then moves.
-4. The key blob (`VerifierKeyBlob`), `Machine::has_cached_key` and the GPU / reference backends
-   (`prove_on`).
-5. Forgery tests in `tests/cheating.rs` for the new header field on the live path (the opt-in
-   tests cover the header and the degree bits; nothing forges a trace at a short height).
-6. Decide the step. 2 keeps keys few; 1 halves the worst-case over-allocation.
+1. Done — `poseidon2_log_height` is in `machine::Proof`, `Traces` and `VerifierKeyShape`, range
+   checked inside `check_declared_heights_with_modq`. `CONSTRAINT_SET` stays 11 (this cut joins
+   set 11).
+2. Done — `gas::gas_max_declared`; the msauth pinned gas word moves with it (below).
+3. Done — `../recursion`: `InnerShape` has the eighth component (`poseidon2_log_height`, a
+   header word after `mem_log_height`, in `shape_words` and `matches`), and
+   `programs/constraints.rs` builds the chips at the declared height; the verifier program moved.
+4. Done — `VerifierKeyBlob` (format 2), `Machine::has_cached_key(VerifierKeyShape)`,
+   `export_verifier_key(VerifierKeyShape)` and `prove_on` all take the declared height.
+5. Done — `tests/cheating.rs`: a table cut to a shorter admitted height than the run needs, an
+   idle-block `MULT` at a short height, a header relabelled to another admitted height; a taller
+   table than needed verifies.
+6. **Step 2.** Step 1 would halve the worst-case over-allocation (2× instead of 4×) but double
+   the admitted shapes per tier (`t − 4` instead of `(t − 4) / 2`: 16 keys at tier 20 instead of
+   8), and every one is a verifier key a node may have to build or install and an rVM program
+   shape. The code gives no reason to prefer 1: the measured cases above land at most one step
+   above their need, and the large programs — the ERC-20 run — are dominated by their own
+   program digest, which neither step removes.
 
 ## Constraint set 9: the MODQ chip
 
@@ -619,23 +634,18 @@ accounted for exactly: +178 (phase 5, the new cpu constraints), +60 (phase 6 pre
 - `tree_measure.rs`'s `production_leaf_l2` and `production_rv32r_over_the_leaf_proves`, which need
   the 256 GB droplet.
 
-## ZKVM-111: the quotient layout and rate 1/4 on the RV32 machine (opt-in, `next-set`)
+## ZKVM-111: the quotient layout and rate 1/4 on the RV32 machine (live in set 11)
 
-The RV32 machine runs at blowup 8 with Plonky3's one-matrix-per-quotient-chunk layout; the rVM
-moved to one matrix per instance and to blowup 4. Both moves are now available here **as
-opt-in entry points behind the cargo feature `next-set`**, measured, and not live:
-`machine::QUOTIENT_LAYOUT` is `PerChunk`, `FriProfile::{Test, Production}` are blowup 8, and
-`Machine::{prove, verify}` are what they were. `tests/verifier_key.rs`, `key_blob.rs`,
-`proof_binding.rs` and `zk.rs` pass unchanged.
-
-What the feature adds:
-
-- `Machine::prove_traces_with_layout` / `verify_with_layout` (the vendored `p3-batch-stark`
-  fork's `_with_layout` entry points). `verify` is now `verify_under(.., QUOTIENT_LAYOUT)`,
-  which for `PerChunk` is the fork's `verify_batch`.
-- `FriProfile::Quarter` (blowup 4, 92 queries, 24 grinding bits — the rVM's numbers) and
-  `FriProfile::QuarterTest` (blowup 4, 16 queries, 4 bits). `FriProfile::log_blowup()` is 3 for
-  the two live profiles, whose postcard encodings (0 and 1) are pinned.
+Through set 10 the RV32 machine ran at blowup 8 with Plonky3's one-matrix-per-quotient-chunk
+layout; the rVM had moved to one matrix per instance and to blowup 4. **Since constraint set 11
+this machine has too:** `machine::QUOTIENT_LAYOUT` is `PerInstance`, `machine::LOG_BLOWUP` is 2,
+and `FriProfile::Production` is 92 queries and 24 grinding bits (the rVM's numbers),
+`FriProfile::Test` 16 queries and 4 bits — both blowup 4, postcard encodings (0 and 1)
+unchanged. The `next-set` prototype's `FriProfile::{Quarter, QuarterTest}` are gone (they are
+the two live profiles now). `Machine::prove`/`verify` go through the vendored `p3-batch-stark`
+fork's `_with_layout` entry points at the live layout; `verify_with_layout` and
+`prove_traces_with_layout` stay as test hooks, so `tests/quotient_layout.rs` can show a
+`PerChunk` proof refused by the live verifier.
 
 **The degree-8 tables do not block blowup 4.** The issue (and `tests/tables.rs`'s comment)
 reasoned that the cpu and alu tables' degree 8 forces 8 quotient chunks and therefore blowup 8.
@@ -680,30 +690,43 @@ The run, from a plain terminal:
 
 ```sh
 cd research && caffeinate -is cargo test --release --test quotient_layout_heap \
-  quarter_tier18_per_instance -- --ignored --nocapture --exact
+  tier18_per_instance -- --ignored --nocapture --exact
 ```
+
+(The `Quarter` rows above were measured under the `next-set` prototype's `Quarter` profile,
+which is the live `Production` since set 11; the test names in `quotient_layout_heap.rs` now
+measure at `Production` only.)
 
 **Security, as far as it was checked.** `Quarter`'s numbers are the rVM's, for which
 `recursion/docs/07-rvm-rate-quarter.md` derives 86.38 proven bits against 86.41 (the
 low-degree-test term, unique decoding) and checks them with `p3-security` over the rVM's chip
 shapes. That computation has **not** been repeated for this machine's chips, so "not lower than
 today's by more than 0.03" is the rVM's result carried over, not a result here. 92 queries is
-inside the private-data floor (`2^7 ≥ queries + 2`), asserted at compile time under the
-feature.
+inside the private-data floor (`2^7 ≥ queries + 2`), asserted at compile time. (Superseded:
+item 2 below did the computation for this machine.)
 
-Left for the cut:
+Done at the cut (the list as it stood, each item's outcome):
 
-1. Flip `QUOTIENT_LAYOUT` and the two live profiles' blowup, queries and grinding; bump
-   `CONSTRAINT_SET`; re-pin every key (the preprocessed LDE is half as tall).
-2. `p3-security` over this machine's shapes at `Quarter`, as `recursion/tests/security.rs`
-   does for the rVM.
-3. `../recursion`: `InnerShape::quotient_layout()` answers `PerChunk` and the verifier program
-   replays an 80-query, blowup-8 inner proof; both follow, and every aggregate digest moves.
-4. The GPU / reference backends (`prove_on`) take `prove_batch`, not `_with_layout`.
-5. The quotient transient: an auxiliary column for the alu's `div` sign fix and a narrower
-   lookup packing on the cpu would bring both to degree ≤ 5 and 4 quotient chunks. Not priced
-   here beyond the 30 % against 20 % observation above.
-6. Run tier 18 (ERC-20), tier 20 (SPL transfer) and the msauth M = 3 prove, and record them.
+1. Done — `QUOTIENT_LAYOUT = PerInstance`, both profiles blowup 4, Production 92 q / 24 bits;
+   `CONSTRAINT_SET` stays 11; every key re-pinned.
+2. Done — `tests/security.rs`: `p3-security` over this machine's worst admitted shape (tier
+   20, every optional chip at its flat maximum, memory at its ceiling, poseidon2 at `t + 2`:
+   5 429 constraints, degree 8, a `2^25` extended trace, 8 720 batched codewords, 361 LogUp
+   interactions). Proven: **86.38 bits** at rate 1/4 (92/24) against 86.41 at rate 1/8 (80/20),
+   unique decoding, the low-degree-test term binding — the paper's closed form and `p3-security`
+   agree, and the 0.03-bit drop is inside the gate's 0.5. Conjectured: 89.80 under both
+   regimes, bound by a term the FRI parameters do not reach (so the rVM's 95-bit floor is not
+   this machine's; the test asserts "not below the old profile's"). Legacy ethSTARK 208.
+3. Done — `../recursion`: `InnerShape::quotient_layout()` answers the live layout,
+   `INNER_LOG_BLOWUP` is `machine::LOG_BLOWUP`, the profile is recovered from the new query and
+   grinding numbers; the verifier program and every aggregate digest moved.
+4. Done — `prove_on` (GPU / reference backends) proves through `prove_batch_with_layout` at the
+   live layout.
+5. **Not done** (optional): the quotient transient lever — the cpu and alu tables are still
+   degree 8 (8 quotient chunks), which blowup 4 does not require lowering.
+6. **Owed, big host:** tier 18 (ERC-20), tier 20 (SPL transfer) and the msauth M = 3 prove at
+   the live configuration. The tier-18 heap run is
+   `cargo test --release --test quotient_layout_heap tier18_per_instance -- --ignored --nocapture --exact`.
 
 ## Constraint set 10: a digest-prefix row costs a permutation
 
@@ -767,6 +790,13 @@ bytecode contains the new opcodes: the ERC-20's stage-one and stage-two hcs are 
 
 ## Constraint set 11: gas weights that are the committed-cell count
 
+**What else is live in set 11** (`feat/cs11-integration`; one set, one genesis): the Grain
+Poseidon2 round constants (ZKVM-107), the proof-declared poseidon2 height (ZKVM-112), the
+per-instance quotient layout at rate 1/4 (ZKVM-111) and, in `../recursion`, the versioned rVM
+verifier key `KeyVersion::Set(11)` (ZKVM-113) — each section above/below says what moved. The
+256-bit multiply-add chip (ZKVM-115) stays behind `next-set`. `CONSTRAINT_SET` is 11 for all of
+them.
+
 ZKVM-202 (fullnode #167; the owner's ruling of November 2026: adopt the counted weights at the next
 constraint set, Keccak and SHA-256 lowered with the rest). `docs/07-gas.md` has the method, the
 table, the soundness argument for the per-op `MODQ` price and the fee note for governance.
@@ -783,7 +813,7 @@ table, the soundness argument for the per-op `MODQ` price and the fee note for g
 | ceiling per keccak / sha256 / modq block | 191 / 63 / 167 | 133 / 48 / 303 |
 | cpu `col::WIDTH` | 283 | 284 (`MODQ_W`) |
 | `MODQ` bus message | `(clk, base, a1)` | `(clk, base, a1, weight − 1)` |
-| `msauth` pinned gas word, `gas_max_with_modq(18, 14, 0, 16)` | 436 159 | 447 935 |
+| `msauth` pinned gas word, `gas_max_with_modq(18, 14, 0, 16)` | 436 159 | 447 935 (weights alone); **355 775** with the declared poseidon2 height, `gas_max_declared(18, 14, 0, 16, 16)` (ZKVM-112) |
 | `msauth` metered gas, `M` = 1 / 2 / 3 | 111 217 / 216 576 / 321 575 | 108 056 / 208 621 / 308 826 |
 
 - `gas.rs`: `MODQ_GAS` is gone; `MODQ_NTT_GAS`, `MODQ_INTT_GAS`, `MODQ_DOT4_GAS`, `MODQ_MSUB4_GAS`,
@@ -812,7 +842,7 @@ ships included: regenerate it.
 1. Every caller of `gas::MODQ_GAS` stops compiling (deliberately): the fee schedule's mirror of the
    weights becomes the seven constants above, per op for `MODQ`. A fee table keyed on the syscall
    number alone cannot express set 11: `MODQ`'s price needs `a1 & 3`.
-2. `msauth` admission pins `pv::GAS == 447 935` (was 436 159), same tier and heights; the
+2. `msauth` admission pins `pv::GAS == 355 775` (was 436 159; 447 935 with the weights alone, before ZKVM-112 joined the set), same tier and heights; the
    off-by-one refusals move with it. Any admission rule that pins another guest's header-ceiling
    gas word moves by the table above (`bundle`, `auth`: `gas_max` at their tier and heights).
 3. `BUILD_CONSTRAINT_SET` to 11, and the set-10 chains (and any still listed for set 9) into
@@ -865,9 +895,9 @@ the pins they feed are left at their old values, nothing is guessed:
    proof size the fullnode pins: `MSAUTH_PROVE_M=3 /usr/bin/time -l cargo test --release --test
    msauth msauth_proves_at_m_production -- --ignored --nocapture`, once more with
    `MSAUTH_PROVE_M=1`, then `msauth_proof_headers_match_across_m -- --ignored`. Result: the header
-   line it prints (tier 18, heights 12/12/14/0/16/7/20, gas `447935`) goes to
+   line it prints (tier 18, heights 12/12/14/0/16/7/20 and poseidon2 16, gas `355775`) goes to
    `docs/04-guests.md`, "Production prove", and to the fullnode's admission pin. The gas word
-   itself is not pending: it is `gas_max_with_modq(18, 14, 0, 16)`, asserted by
+   itself is not pending: it is `gas_max_declared(18, 14, 0, 16, 16)`, asserted by
    `tests/gas_cells.rs`.
 2. *The tier-18 `msauth` verifier key blob* the fullnode ships (stamped `constraint_set = 11`
    now; a set-10 blob is refused on install): `cargo +1.98.1 test --release --test key_blob

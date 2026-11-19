@@ -16,7 +16,7 @@ them from here, and do not restate them elsewhere.**
 | table widths (each table's own columns) | `program` 108, `cpu` 284, `memory` 12, `alu` 64, `range` 2, `nibble` 3, `poseidon2` 34, `input` 8, `keccak` 2612, `sha256` 466, `modq` 59, `public` 8 |
 | committed width | each of the above plus the 5 blind columns (`tables::blind`): cpu 289 |
 | public values (`tables::cpu::pv::NUM`) | 35 |
-| `#[test]` functions under `src/` and `tests/` | 910, of which 26 carry `#[ignore]` |
+| `#[test]` functions under `src/` and `tests/` | 908, of which 21 carry `#[ignore]` |
 <!-- counts:end -->
 
 How the machine got there (M4.1 added `input` and the `INPUT_DIGEST`/`INPUT_READ`
@@ -148,7 +148,7 @@ own tier-20 proof. `sbpf2rv/README.md` has the full walkthrough
 (2026-09-18)**: an ahead-of-time EVM → RV32 translator. It turns Solidity runtime bytecode into C
 over `evm-rt/` in a shim crate `rand-guest build` compiles, reusing `evm-core::abi`'s harness, so
 the input vector and the eight output words are the interpreter's. Stage two (register lifting,
-the default) runs the ERC-20 transfer in 59 946 cycles, **tier 16**, against the interpreter's 120 892, tier 18 (`evm.bin` ae5f0b2b…, hc fae9d774…, 15 167 words, storage layout 2; 95 971 against 154 517 before ZKVM-117's harness savings, 70 295 against 128 872 under the depth-32 tree, and 66 235 against 124 606 before ZKVM-103/104, all tier 18),
+the default) runs the ERC-20 transfer in 59 946 cycles, **tier 16**, against the interpreter's 120 892, tier 18 (`evm.bin` ae5f0b2b…, hc 7862f530… since constraint set 11 (fae9d774… before), 15 167 words, storage layout 2; 95 971 against 154 517 before ZKVM-117's harness savings, 70 295 against 128 872 under the depth-32 tree, and 66 235 against 124 606 before ZKVM-103/104, all tier 18),
 at 7 958 program words; the three ERC-20 calls and five more vectors (a revert, out of gas three ways, the exact limit) match the
 interpreter word for word, and 10 000-case fuzz corpora (plain and opaque, both stages) show no
 divergence. The observable contract is the status, the eight words and `gas_used`, never the halt
@@ -496,12 +496,11 @@ it (`rand-guest/src/build.rs`'s `flags`), not written in the guest.
 
 ## Known development placeholders — not bugs, don't "fix" them
 
-- `PERM_SEED` Poseidon2 round constants (a fixed development seed, not the
-  published `GOLDILOCKS_POSEIDON2_RC_8_*` constants — swapping them is a
-  config change, not a rewrite; the replacement table is committed and
-  tested but unused, `src/poseidon2_constants_next.rs`, and
-  `docs/05-roadmap.md` "ZKVM-107" lists the cut — do not point live code
-  at it outside that cut); `machine::KEY_SEED` similarly (M3.4: the
+- (Constraint set 11 retired the Poseidon2 round-constant placeholder: the
+  live table is the Grain derivation, equal to Plonky3's
+  `GOLDILOCKS_POSEIDON2_RC_8_*`, `docs/05-roadmap.md` "ZKVM-107".
+  `PERM_SEED` survives only as an opaque tag the GPU engines key their
+  table on — not a seed, don't "fix" it.) `machine::KEY_SEED` (M3.4: the
   verifier-key config's fixed seed, replacing the old program-derived one
   now that the preprocessed trace no longer depends on the program —
   constraint set 7 replaced the seed itself with `key_derivation_v2`'s

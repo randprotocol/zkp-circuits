@@ -99,11 +99,27 @@ pub fn gas_max(tier: Tier, keccak_log_height: u8, sha256_log_height: u8) -> u64 
 /// [`gas_max`] with the modq table's height (private multisig phase 3): a fifth term,
 /// `303 · 2^mlh / 1024` — every `MODQ` row occupies one 1 024-row modq block and adds at most
 /// `MODQ_MAX_GAS − 1`, the heaviest op's (`MSUB4`): a ceiling has to cover a table full of them. `modq_log_height = 0` (no modq table) is exactly `gas_max`; the height is clamped at 40
-/// like the others.
+/// like the others. The poseidon2 table is at the tier's full `2^(t+2)`; [`gas_max_declared`]
+/// takes a declared height.
 pub fn gas_max_with_modq(tier: Tier, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8) -> u64 {
+    // `u8::MAX` is clamped to the (clamped) tier's own `t + 2` inside, so an absurd tier is
+    // still the nearest real tier's full-height ceiling.
+    gas_max_declared(tier, keccak_log_height, sha256_log_height, modq_log_height, u8::MAX)
+}
+
+/// [`gas_max_with_modq`] with the poseidon2 table's declared height (constraint set 11, ZKVM-112):
+/// the permutation term is `3 · 2^p2lh / 32` — the table's `2^p2lh / 32` permutation slots, each at
+/// most one absorb or digest-prefix row — where it was `3 · 2^(t−3)`, the tier's full table. Sound
+/// for the same reason as before (constraint set 10's argument): every such row sends one message
+/// on the `POSEIDON2` bus that a real block of the declared table must receive, so the run has at
+/// most that many of them. `p2lh` is clamped to `[5, t + 2]` before the shift (it comes from an
+/// untrusted header; `check_declared_heights_with_modq` refuses anything outside the admitted set
+/// later), so the term is never more than the full table's.
+pub fn gas_max_declared(tier: Tier, keccak_log_height: u8, sha256_log_height: u8, modq_log_height: u8, poseidon2_log_height: u8) -> u64 {
     let t = tier.0.clamp(crate::machine::TIERS[0], crate::machine::TIERS[crate::machine::TIERS.len() - 1]);
     let cycles = (1u64 << t) - 1;
-    let absorbs = (POSEIDON2_ABSORB_GAS - 1) << (t - 3);
+    let p2 = (poseidon2_log_height as usize).clamp(5, t + 2);
+    let absorbs = (POSEIDON2_ABSORB_GAS - 1) << (p2 - 5);
     let blocks = |h: u8, block: u64| if h == 0 { 0 } else { (1u64 << h.min(40)) / block };
     cycles + absorbs + blocks(keccak_log_height, 32) * (KECCAK_GAS - 1) + blocks(sha256_log_height, 64) * (SHA256_GAS - 1)
         + blocks(modq_log_height, crate::tables::modq::BLOCK as u64) * (MODQ_MAX_GAS - 1)

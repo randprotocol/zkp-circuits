@@ -102,7 +102,7 @@ fn leaves() -> &'static Leaves {
         let bundles: Vec<BundleProof> = common::bundle_proofs(P, 4).into_iter().map(|b| b.proof).collect();
         let p = &bundles[0];
         let shape = InnerShape::of(P, p.tier, p.program_log_height, p.input_log_height, p.keccak_log_height,
-            p.sha256_log_height, p.public_log_height, p.mem_log_height);
+            p.sha256_log_height, p.public_log_height, p.mem_log_height, p.poseidon2_log_height);
         let key = InnerKey::of(P, &shape);
         let inner = InnerVerifierKey { shape, key };
         let program = Arc::new(aggregate_program(&inner));
@@ -168,7 +168,9 @@ fn the_tree_step_builds_under_the_replays_loop_invariant() {
     // tree Task R): the child's Merkle paths are one level shorter (was bf80794d…ff4d5389).
     // Phase 4 (2026-10-09, the Merkle spans) re-recorded it: 2c586636… → d8d558ee….
     // Phase 5 (2026-10-12, S6a/S2b/S4a/S1b) re-recorded it: d8d558ee… → af535052….
-    assert_eq!(recursion::programs::digest_hex(&a), "af535052d2df18b5e313a6f0c2e412456d059d5f602d569989ad1b2b69e90cac", "rv32t_leaf's digest at the test leaf shape");
+    // The constraint-set-11 cut (Grain Poseidon2 table, rVM key Set(11), the leaf shape the new
+    // inner shape gives) re-recorded it: af535052… → 8cdb1485….
+    assert_eq!(recursion::programs::digest_hex(&a), "8cdb1485574ce25a19843cb2709d3aff114626df419065e0ee4341efdfecc269", "rv32t_leaf's digest at the test leaf shape");
 }
 
 /// The program reads the child shape's words and never its committed program: a child program
@@ -608,9 +610,9 @@ fn a_foreign_program_child_pair_passes_in_program_and_fails_the_root_recompute()
 /// Phase 5 (2026-10-12, S6a/S2b/S4a/S1b) re-recorded `T_LEAF_TEST`: d8d558ee… → af535052… (the same
 /// digest `the_tree_step_builds_under_the_replays_loop_invariant` pins, measured there without
 /// fixtures). `T_INT_TEST` below is NOT re-recorded: it needs the fixture-gated `test_tree()`.
-const T_LEAF_TEST: &str = "af535052d2df18b5e313a6f0c2e412456d059d5f602d569989ad1b2b69e90cac";
+const T_LEAF_TEST: &str = "8cdb1485574ce25a19843cb2709d3aff114626df419065e0ee4341efdfecc269";
 /// Phase 4 (2026-10-09, the Merkle spans) re-recorded `T_INT_TEST`: 04b16771… → a222637e….
-const T_INT_TEST: &str = "a222637e1eb9333b16b820bbacceaac9ea0e5d4cebfc5379d170796a2ac6dc62";
+const T_INT_TEST: &str = "28306b7542ec7beea9c6fde0865a0393d61f8c73669e00ef53c3043d7a822ceb";
 
 #[test]
 fn the_test_tree_program_digests_are_pinned() {

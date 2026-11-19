@@ -1521,11 +1521,11 @@ Preprocessed columns (period 32, `pre::WIDTH = 13`): `rc0..7` (this round's
 constants — only lane 0 is nonzero on a partial round), `is_full`,
 `is_partial`, `is_first` (row 0 of the block), `is_last` (row 29, the last
 round row), `is_idle` (rows 30/31). These are generated once from
-`round_constants()`, which reproduces — by redrawing from the same
-`machine::PERM_SEED`-seeded RNG, in the exact order `Poseidon2::
-new_from_rng_128` draws them — the same round constants `machine::
-permutation()` uses for the proof system's own hashing; there are no new
-constants for this table (per the M3.1 design ruling).
+`round_constants()`, which reads the same table `machine::permutation()`
+uses for the proof system's own hashing — `src/poseidon2_constants.rs`, the
+Grain derivation (equal to Plonky3's `GOLDILOCKS_POSEIDON2_RC_8_*`) since
+constraint set 11; through set 10 a redraw of the `PERM_SEED`-seeded RNG.
+There are no constants of this table's own (per the M3.1 design ruling).
 
 Main columns (`col::WIDTH = 34`): `is_real`, `mult`, `s0..7` (the state
 entering this row), `x3_0..7`/`x7_0..7` (S-box intermediates — see below),
@@ -2092,12 +2092,13 @@ not being part of the `KeyCache` key — the memory table's packed `Lookups`,
 and hence the `CommonData` the key caches, are the same at every declared
 memory height.
 
-This config's ceiling is degree 8 (`generic_config`'s `log_blowup = 3` plus this
-machine's `is_zk = 1` hiding: `constraint_degree = max_degree + 1 ≤ 9` ⇒
-`log2_ceil(8) = 3` quotient chunks, `p3-batch-stark`'s cap), so `alu` and
-`cpu` are both already at the edge — any new constraint with a higher degree
-needs `log_blowup` raised (and the FRI soundness/cost tradeoff that comes
-with it) alongside it.
+This config's quotient ceiling is degree 8 (this machine's `is_zk = 1`
+hiding: `constraint_degree = max_degree + 1 ≤ 9` ⇒ `log2_ceil(8) = 3` quotient
+chunks, `p3-batch-stark`'s cap), so `alu` and `cpu` are both at the edge.
+Since constraint set 11 the FRI blowup is 4 (`machine::LOG_BLOWUP = 2`), below
+the chunk count: the PCS re-extrapolates the quotient onto its larger domain,
+as the rVM's degree-8 chips do, so this costs a larger quotient transient,
+not soundness (`docs/05-roadmap.md`, "ZKVM-111").
 
 ## Why the program digest is in-circuit, and what that means for `hc`
 
@@ -2115,7 +2116,8 @@ never has to derive from a program at all.
 This makes the verifier key — `Machine::verifier_key(tier)` — **program-
 independent**. The only preprocessed columns left are the range and nibble
 tables (fixed, 256 rows each) and the Poseidon2 chip's round-constant table
-(a pure function of `PERM_SEED` and the tier's height) — none of which
+(a pure function of the round-constant table and the table's height — since
+constraint set 11 the *declared* poseidon2 height, `Proof::poseidon2_log_height`) — none of which
 depend on any specific program, so `CommonData` is now a pure function of
 the tier alone. `Machine::verifier_key`'s cache collapses from "one entry
 per `(program digest, tier)`" (a 64-entry, FIFO-evicted `KeyCache`) to "one

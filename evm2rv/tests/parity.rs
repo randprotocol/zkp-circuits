@@ -91,13 +91,13 @@ fn images(stage: Stage) -> &'static Images {
 /// `evm-core`'s depth-64 tree and the layout word in the preimage); it was `69052c42…e932`.
 /// Re-derived for ZKVM-117 (the in-place Merkle walk, witnesses read into place, the baked code
 /// hash); it was `c889e15c…cb9e`.
-const ERC20_HC: &str = "e61dde652e7524ceb51a2c2edfc2ff25f752f8fd47a15733eb24f195017c383a";
+const ERC20_HC: &str = "434cc062420fdaddef05777945aa0dd7711d8900675aec7d83b4a3034ba965f6";
 
 /// The same for the stage-two translation (Task 8): a different program, so a different digest.
 /// Re-derived in Task 9 for the code guard; it was `87aba574…0ccad`. Re-derived for ZKVM-103/104;
 /// it was `a0feae92…8ff6`. Re-derived for ZKVM-105; it was `7c691208…8389`. Re-derived for
 /// ZKVM-117; it was `fa6d5ca0…493d`.
-const ERC20_HC_STAGE2: &str = "0a08a9e4a9707a945a4a47cf57b3cd649c3a725bfda2dcba9c17cb29026f4262";
+const ERC20_HC_STAGE2: &str = "72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8";
 
 /// `hc` of the stage-one ERC-20 translation (`--stage 1`), pinned (fix round 1, item 7). Uses
 /// the parity build.
