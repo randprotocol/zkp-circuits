@@ -9,7 +9,6 @@ pub mod machine;
 pub mod next_set;
 pub mod key_derivation_v2;
 pub mod poseidon2_constants;
-pub mod poseidon2_constants_next;
 pub mod poseidon2_grain;
 pub mod hash;
 pub mod program_commitment;
