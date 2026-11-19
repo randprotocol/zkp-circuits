@@ -168,7 +168,9 @@ fn the_tree_step_builds_under_the_replays_loop_invariant() {
     // tree Task R): the child's Merkle paths are one level shorter (was bf80794d…ff4d5389).
     // Phase 4 (2026-10-09, the Merkle spans) re-recorded it: 2c586636… → d8d558ee….
     // Phase 5 (2026-10-12, S6a/S2b/S4a/S1b) re-recorded it: d8d558ee… → af535052….
-    assert_eq!(recursion::programs::digest_hex(&a), "af535052d2df18b5e313a6f0c2e412456d059d5f602d569989ad1b2b69e90cac", "rv32t_leaf's digest at the test leaf shape");
+    // The constraint-set-11 cut (Grain Poseidon2 table, rVM key Set(11), the leaf shape the new
+    // inner shape gives) re-recorded it: af535052… → 8cdb1485….
+    assert_eq!(recursion::programs::digest_hex(&a), "8cdb1485574ce25a19843cb2709d3aff114626df419065e0ee4341efdfecc269", "rv32t_leaf's digest at the test leaf shape");
 }
 
 /// The program reads the child shape's words and never its committed program: a child program
