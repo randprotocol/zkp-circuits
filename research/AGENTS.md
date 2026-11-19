@@ -16,7 +16,7 @@ them from here, and do not restate them elsewhere.**
 | table widths (each table's own columns) | `program` 108, `cpu` 284, `memory` 12, `alu` 64, `range` 2, `nibble` 3, `poseidon2` 34, `input` 8, `keccak` 2612, `sha256` 466, `modq` 59, `public` 8 |
 | committed width | each of the above plus the 5 blind columns (`tables::blind`): cpu 289 |
 | public values (`tables::cpu::pv::NUM`) | 35 |
-| `#[test]` functions under `src/` and `tests/` | 907, of which 26 carry `#[ignore]` |
+| `#[test]` functions under `src/` and `tests/` | 910, of which 26 carry `#[ignore]` |
 <!-- counts:end -->
 
 How the machine got there (M4.1 added `input` and the `INPUT_DIGEST`/`INPUT_READ`
