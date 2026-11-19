@@ -12,8 +12,10 @@
 //! (`evm2rv::compat`, published as `COMPATIBILITY.md`). It translates nothing. Exit status: 0 when
 //! nothing in the code traps, 1 when an opcode that always traps is present (or the code is over
 //! the size cap), 2 when the only findings are opcodes that trap for some operands (a call, which
-//! runs only to a precompile; `RETURNDATACOPY`). By default the verdict is for a translation;
-//! `--interpreter` gives it for the interpreter, where `CHAINID`, `ORIGIN` and every call trap.
+//! runs only to a precompile; `RETURNDATACOPY`) or outside a version-2 context (the block-context
+//! opcodes, which run only in an `InvokeAt`; fullnode #168). By default the verdict is for a
+//! translation; `--interpreter` gives it for the interpreter, where every call traps and
+//! `CHAINID` and `ORIGIN` run under a version-2 context only.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -64,13 +66,13 @@ struct Args {
 enum Cmd {
     /// List every opcode in the contract that traps or may trap, with its offset and the reason
     /// (COMPATIBILITY.md). Exit status 0: nothing traps; 1: something always traps; 2: something
-    /// traps for some operands.
+    /// traps for some operands or outside a version-2 context.
     Check {
         /// The contract's runtime bytecode: a `.hex` file is hex text, anything else raw bytes.
         contract: PathBuf,
 
-        /// Give the verdict for the interpreter (`evm.bin`) instead of a translation: `CHAINID`,
-        /// `ORIGIN` and every call trap there.
+        /// Give the verdict for the interpreter (`evm.bin`) instead of a translation: every call
+        /// traps there, and `CHAINID` and `ORIGIN` run under a version-2 context only.
         #[arg(long)]
         interpreter: bool,
     },
@@ -151,7 +153,8 @@ fn check(contract: &Path, interpreter: bool) -> Result<u8> {
         );
     }
     let status = if interpreter {
-        // In the interpreter every finding is a trap, except the conditional RETURNDATACOPY.
+        // In the interpreter every finding is a trap, except the conditional ones
+        // (RETURNDATACOPY, and the opcodes that run under a version-2 context).
         if r.findings.iter().any(|f| f.interp == Behaviour::Traps) {
             1
         } else if r.interpreter_traps() {
@@ -172,7 +175,7 @@ fn check(contract: &Path, interpreter: bool) -> Result<u8> {
         match status {
             0 => format!("clean: nothing in this code traps in {path}"),
             1 => format!("not clean: an opcode in this code always traps in {path}"),
-            _ => format!("conditional: an opcode in this code traps for some operands in {path}"),
+            _ => format!("conditional: an opcode in this code traps for some operands or outside a version-2 context in {path}"),
         }
     );
     Ok(status)
@@ -226,6 +229,11 @@ fn main() -> Result<()> {
                 Warning::Trap { pc, opcode } => println!(
                     "  pc {pc:#06x}: {} ({opcode:#04x}) traps (status 2): outside what a single-contract proof can run",
                     mnemonic(*opcode)
+                ),
+                Warning::BlockContext { pc, opcode } => println!(
+                    "  pc {pc:#06x}: {} ({opcode:#04x}) traps (status 2) unless the call is an InvokeAt (context version 2){}",
+                    mnemonic(*opcode),
+                    if *opcode == 0x44 { ", and on a chain without the beacon" } else { "" }
                 ),
                 Warning::Call { pc, opcode } => println!(
                     "  pc {pc:#06x}: {} ({opcode:#04x}) traps (status 2) unless the target is a precompile (addresses 1-9)",

@@ -4,9 +4,9 @@
 
 use evm_core::abi::{run_call, Workspace};
 use evm_core::Host;
-use guest_sdk::{halt, keccak, poseidon2, read_input, write_output};
+use guest_sdk::{halt, keccak, poseidon2, read_input, read_public, write_output};
 
-/// [`evm_core::Host`] as the machine's two syscalls. Everything else the interpreter needs — the
+/// [`evm_core::Host`] as the machine's syscalls. Everything else the interpreter needs — the
 /// Keccak-256 sponge, the domain-tagged Poseidon2 wrapper, 256-bit arithmetic, the storage tree,
 /// the opcode dispatch — is ordinary compiled guest code in `evm-core`, host-tested natively
 /// (`research/tests/evm_*.rs`) and compiled here unchanged.
@@ -21,6 +21,11 @@ impl Host for Syscalls {
         // domain-tagged wrapper hashes a buffer it sized for the digest), and `words` is a live,
         // exclusive `&mut` for the call — `guest_sdk::poseidon2`'s `# Safety` contract.
         unsafe { poseidon2(words.as_mut_ptr(), n) };
+    }
+    fn read_public(&mut self, idx: u32) -> u32 {
+        // The block-context opcodes' words (`evm_core::block`): an index past the public
+        // segment can never be satisfied, so a run that reads one has no proof.
+        read_public(idx)
     }
 }
 

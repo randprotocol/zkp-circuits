@@ -30,7 +30,7 @@ use evm2rv::compat::{self, Behaviour, Gas, Severity};
 use evm2rv::emit::{translate, Options, Stage};
 use evm_core::interp::{Halt, Outcome};
 use evm_core::u256::U256;
-use rand_zkvm::evm::{erc20_transfer, EvmCall, HostRef, ALICE, BOB};
+use rand_zkvm::evm::{erc20_transfer, v1_segment, BlockFacts, EvmCall, HostPublic, HostRef, ALICE, BOB};
 
 /// Far more than any probe spends, so no probe halts for want of gas.
 const GAS: u64 = 10_000_000;
@@ -110,6 +110,11 @@ fn predicted(op: u8, b: Behaviour) -> Halt {
     match b {
         Behaviour::Runs => running_halt(op),
         Behaviour::RunsIf if op == 0x3e => Halt::Stop,
+        // `HostRef` carries no public segment, so no version-2 context: the block-context rows,
+        // and the interpreter's CHAINID and ORIGIN, trap.
+        Behaviour::RunsIf if blocks::BLOCK_CTX_OPS.contains(&op) || op == 0x32 || op == 0x46 => {
+            Halt::Trap(op)
+        }
         Behaviour::RunsIf => {
             assert!(
                 blocks::CALL_FAMILY.contains(&op),
@@ -296,6 +301,118 @@ fn the_conditional_rows_trap_exactly_where_the_table_says() {
     }
 }
 
+/// `op`, then its word returned: `op; PUSH0; MSTORE; PUSH1 32; PUSH0; RETURN`.
+fn returning(op: u8) -> Vec<u8> {
+    vec![op, 0x5f, 0x52, 0x60, 0x20, 0x5f, 0xf3]
+}
+
+/// The block-context rows (fullnode #168): under a version-2 context each runs on both paths and
+/// returns the word the context defines, with the same eight public words and gas; under a
+/// version-1 context each traps on both, as with no segment at all; `PREVRANDAO` traps on a chain
+/// without the beacon. The interpreter's `CHAINID` and `ORIGIN` run under version 2 only; a
+/// translation's run everywhere (its `CHAINID` is the baked constant).
+#[test]
+fn the_block_context_rows_run_under_a_version_2_context_only() {
+    let binding = [0xb1, 0xb2, 0xb3, 0xb4, 0xb5, 0xb6, 0xb7, 0xb8];
+    let mut beacon = [0u8; 32];
+    for (i, b) in beacon.iter_mut().enumerate() {
+        *b = 0xa0 ^ i as u8;
+    }
+    let facts = BlockFacts {
+        height: 0x1_0000_0007,
+        timestamp_ms: 1_794_960_123_456,
+        chain_id: 22,
+        basefee: 0x2_0000_0064,
+        randomness: Some(beacon),
+    };
+    let no_beacon = BlockFacts { randomness: None, ..facts };
+    let (with, without, v1) = (facts.segment(&binding), no_beacon.segment(&binding), v1_segment(&binding));
+
+    let ops: Vec<u8> = blocks::BLOCK_CTX_OPS.iter().copied().chain([0x46, 0x32]).collect();
+    let codes: Vec<Vec<u8>> = ops.iter().map(|&op| returning(op)).collect();
+    let lib = host::build("compat-block-context", &translations(&codes));
+    let want = |op: u8| -> U256 {
+        match op {
+            0x3a | 0x48 => U256::from_u64(facts.basefee),
+            0x41 => U256::ZERO,
+            0x42 => U256::from_u64(1_794_960_123),
+            0x43 => U256::from_u64(facts.height),
+            0x44 => U256::from_be_bytes(&beacon),
+            0x45 => U256::from_u64(u32::MAX as u64),
+            0x46 => U256::from_u64(22),
+            0x32 => c0().caller,
+            _ => unreachable!(),
+        }
+    };
+    for (i, &op) in ops.iter().enumerate() {
+        let name = compat::name(op);
+        let c = call(&codes[i]);
+        let run_x = |seg: &[u32]| -> Vec<(Stage, [u32; 8], Outcome)> {
+            let words = c.input_words();
+            STAGES
+                .iter()
+                .enumerate()
+                .map(|(k, &stage)| {
+                    let (out, o, _) = lib.run_words(&mut HostPublic(seg), k * codes.len() + i, &words);
+                    (stage, out, o)
+                })
+                .collect()
+        };
+
+        // Version 2, with the beacon.
+        let (words, o, _) = c.expected_on(&with);
+        assert_eq!(o.halt, Halt::Return, "{name}: interpreter, version 2");
+        assert_eq!(returned_word(&o), want(op), "{name}: interpreter's word");
+        // op (2), PUSH0 (2), MSTORE (3 + one word's expansion), PUSH1 (3), PUSH0 (2).
+        assert_eq!(o.gas_used, 2 + 2 + 3 + compat::memory_cost(1) + 3 + 2, "{name}: gas");
+        for (stage, w, t) in run_x(&with) {
+            assert_eq!(t.halt, Halt::Return, "{name} ({stage:?}): version 2");
+            let x = if op == 0x46 { U256::from_u64(CHAIN_ID) } else { want(op) };
+            assert_eq!(returned_word(&t), x, "{name} ({stage:?}): the word");
+            assert_eq!(t.gas_used, o.gas_used, "{name} ({stage:?}): gas_used");
+            if op != 0x46 {
+                assert_eq!(w, words, "{name} ({stage:?}): the eight public words");
+            }
+        }
+
+        // Version 2 without the beacon: PREVRANDAO traps; nothing else moves.
+        let (words_nb, o_nb, _) = c.expected_on(&without);
+        if op == 0x44 {
+            assert_eq!(o_nb.halt, Halt::Trap(0x44), "PREVRANDAO without the beacon");
+            assert_eq!(o_nb.gas_used, GAS);
+        } else {
+            assert_eq!((o_nb.halt, returned_word(&o_nb)), (Halt::Return, want(op)), "{name}: no beacon");
+        }
+        for (stage, w, t) in run_x(&without) {
+            if op == 0x44 {
+                assert_eq!(t.halt, Halt::Trap(0x44), "PREVRANDAO without the beacon ({stage:?})");
+                assert_eq!(w, words_nb, "{stage:?}");
+            } else {
+                assert_eq!(t.halt, Halt::Return, "{name} ({stage:?}): no beacon");
+            }
+        }
+
+        // Version 1: the interpreter traps, as it does with no segment at all, to the words.
+        let (words_v1, o_v1, _) = c.expected_on(&v1);
+        let (words_none, o_none, _) = c.expected();
+        assert_eq!(o_v1.halt, Halt::Trap(op), "{name}: interpreter, version 1");
+        assert_eq!((words_v1, o_v1.gas_used), (words_none, o_none.gas_used), "{name}: version 1 = no context");
+        for (stage, w, t) in run_x(&v1) {
+            if op == 0x46 || op == 0x32 {
+                assert_eq!(t.halt, Halt::Return, "{name} ({stage:?}): a translation runs it everywhere");
+            } else {
+                assert_eq!(t.halt, Halt::Trap(op), "{name} ({stage:?}): version 1");
+                assert_eq!((w, t.gas_used), (words_v1, GAS), "{name} ({stage:?}): version 1");
+            }
+        }
+    }
+}
+
+/// The caller [`call`] gives.
+fn c0() -> EvmCall {
+    call(&[])
+}
+
 #[test]
 fn every_precompile_address_does_what_the_table_says() {
     // Every listed address, and four the table does not list (other contracts: a call traps).
@@ -384,15 +501,18 @@ fn every_precompile_address_does_what_the_table_says() {
 fn the_static_gas_and_the_trap_sets_are_the_codes() {
     for op in 0..=255u8 {
         let row = compat::opcode(op);
-        // The interpreter's own table, on every byte it runs; ORIGIN and CHAINID are the
-        // translation's alone (README, "Environment opcodes").
-        if matches!(row.interp, Behaviour::Runs | Behaviour::RunsIf) {
+        // The interpreter's own table, on every byte it runs; ORIGIN, CHAINID and the
+        // block-context opcodes charge their G_BASE inside the interpreter's arm, once the
+        // context has shown they run, and at the block head in a translation (README,
+        // "Environment opcodes").
+        let in_arm = op == 0x32 || op == 0x46 || blocks::BLOCK_CTX_OPS.contains(&op);
+        if in_arm {
+            assert_eq!(evm_core::interp::static_gas(op), 0, "{op:#04x}: charged in its arm");
+            assert_eq!(row.static_gas, 2, "{op:#04x}: G_BASE in a translation");
+        } else if matches!(row.interp, Behaviour::Runs | Behaviour::RunsIf) {
             assert_eq!(row.static_gas, evm_core::interp::static_gas(op), "{op:#04x}");
         } else {
             assert_eq!(evm_core::interp::static_gas(op), 0, "{op:#04x}: nothing runs");
-        }
-        if op == 0x32 || op == 0x46 {
-            assert_eq!(row.static_gas, 2, "{op:#04x}: G_BASE in a translation");
         }
         // A row with no gas is a row where nothing runs on either path, and the reverse.
         let nothing_runs = !matches!(row.interp, Behaviour::Runs | Behaviour::RunsIf)
@@ -638,9 +758,9 @@ fn committed(name: &str) -> Vec<u8> {
     hex::decode(digits.strip_prefix("0x").unwrap_or(&digits)).unwrap()
 }
 
-/// A contract with one of each kind: TIMESTAMP (always traps), a STATICCALL (may trap), CHAINID
-/// (the interpreter only), and a `PUSH2` whose data is two trapping opcodes' bytes.
-const HAND_MADE: [u8; 9] = [0x61, 0x42, 0xf0, 0x42, 0x46, 0xfa, 0x54, 0x0c, 0x00];
+/// A contract with one of each kind: BLOCKHASH (always traps), a STATICCALL (may trap), CHAINID
+/// (the interpreter only), and a `PUSH2` whose data is two opcodes' bytes.
+const HAND_MADE: [u8; 9] = [0x61, 0x42, 0xf0, 0x40, 0x46, 0xfa, 0x54, 0x0c, 0x00];
 
 #[test]
 fn check_lists_every_trapping_opcode_with_its_offset() {
@@ -650,14 +770,20 @@ fn check_lists_every_trapping_opcode_with_its_offset() {
     assert_eq!(
         got,
         [
-            (3, 0x42, Severity::Traps),
+            (3, 0x40, Severity::Traps),
             (4, 0x46, Severity::InterpreterOnly),
             (5, 0xfa, Severity::MayTrap),
         ],
         "the PUSH2's data is not read as opcodes"
     );
-    assert_eq!(r.findings[0].name, "TIMESTAMP");
-    assert_eq!(r.findings[0].reason, compat::opcode(0x42).note);
+    assert_eq!(r.findings[0].name, "BLOCKHASH");
+    assert_eq!(r.findings[0].reason, compat::opcode(0x40).note);
+    // TIMESTAMP may trap: it runs under a version-2 context only (fullnode #168).
+    let ts = compat::check(&[0x42, 0x50, 0x00]);
+    assert_eq!(
+        ts.findings.iter().map(|f| (f.pc, f.opcode, f.severity)).collect::<Vec<_>>(),
+        [(0, 0x42, Severity::MayTrap)]
+    );
     assert_eq!((r.undefined, r.gas_differs), (1, 1));
     assert!(r.traps() && r.may_trap() && r.interpreter_traps());
 
@@ -674,15 +800,19 @@ fn check_lists_every_trapping_opcode_with_its_offset() {
         let scan: Vec<(usize, u8)> = r
             .findings
             .iter()
-            .filter(|f| f.severity == Severity::Traps || blocks::CALL_FAMILY.contains(&f.opcode))
+            .filter(|f| {
+                f.severity == Severity::Traps
+                    || blocks::CALL_FAMILY.contains(&f.opcode)
+                    || blocks::BLOCK_CTX_OPS.contains(&f.opcode)
+            })
             .map(|f| (f.pc, f.opcode))
             .collect();
         let warned: Vec<(usize, u8)> = blocks::warnings(&code)
             .iter()
             .map(|w| match *w {
-                blocks::Warning::Trap { pc, opcode } | blocks::Warning::Call { pc, opcode } => {
-                    (pc, opcode)
-                }
+                blocks::Warning::Trap { pc, opcode }
+                | blocks::Warning::Call { pc, opcode }
+                | blocks::Warning::BlockContext { pc, opcode } => (pc, opcode),
                 blocks::Warning::CodeTooLarge { .. } => panic!("{name} is over the code cap"),
             })
             .collect();
@@ -734,13 +864,13 @@ fn the_check_subcommand_reports_and_sets_its_exit_status() {
         assert!(out.contains("0 always trap, 0 may trap, 0 trap in the interpreter only"), "{out}");
     }
 
-    // The hand-made contract: TIMESTAMP always traps.
+    // The hand-made contract: BLOCKHASH always traps.
     let (status, out) = run_check(&write("hand.bin", &HAND_MADE), false);
     assert_eq!(status, 1, "{out}");
-    assert!(out.contains("pc 0x0003: TIMESTAMP (0x42) TRAPS"), "{out}");
+    assert!(out.contains("pc 0x0003: BLOCKHASH (0x40) TRAPS"), "{out}");
     assert!(out.contains("pc 0x0004: CHAINID (0x46) interpreter only"), "{out}");
     assert!(out.contains("pc 0x0005: STATICCALL (0xfa) MAY TRAP"), "{out}");
-    assert!(out.contains(compat::opcode(0x42).note), "{out}");
+    assert!(out.contains(compat::opcode(0x40).note), "{out}");
     assert!(out.contains("1 always trap, 1 may trap, 1 trap in the interpreter only"), "{out}");
     assert!(!out.contains("CREATE"), "push data read as an opcode: {out}");
 
@@ -749,10 +879,17 @@ fn the_check_subcommand_reports_and_sets_its_exit_status() {
     assert_eq!(run_check(&only_call, false).0, 2);
     assert_eq!(run_check(&only_call, true).0, 1);
 
-    // Only CHAINID: clean in a translation, a trap in the interpreter.
+    // Only CHAINID: clean in a translation; in the interpreter it runs under a version-2 context
+    // only.
     let only_chainid = write("chainid.bin", &[0x46, 0x50, 0x00]);
     assert_eq!(run_check(&only_chainid, false).0, 0);
-    assert_eq!(run_check(&only_chainid, true).0, 1);
+    assert_eq!(run_check(&only_chainid, true).0, 2);
+
+    // Only TIMESTAMP: conditional on both paths (a version-2 context; fullnode #168).
+    let only_ts = write("timestamp.bin", &[0x42, 0x50, 0x00]);
+    let (status, out) = run_check(&only_ts, false);
+    assert_eq!(status, 2, "{out}");
+    assert!(out.contains("pc 0x0000: TIMESTAMP (0x42) MAY TRAP"), "{out}");
 
     // The translating form of the CLI still takes a bare contract path.
     let o = Command::new(env!("CARGO_BIN_EXE_evm2rv")).arg(&erc20).output().unwrap();

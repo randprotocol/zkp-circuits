@@ -11,8 +11,8 @@
 //! the same variant and argument: the cycle budget (`OutOfCycles`, checked before every row, the
 //! `POSEIDON2` row group's included), a pc with no instruction (`BadPc`), a misaligned load or
 //! store (`Misaligned`), `WRITE_OUTPUT` past the eight slots or to a slot already written
-//! (`OutputSlot`, `DoubleWrite`), `READ_INPUT` past the input (`InputIndex`), `READ_PUBLIC` (the
-//! counter has no public segment, so every index is past it: `PublicIndex`), `POSEIDON2` over more
+//! (`OutputSlot`, `DoubleWrite`), `READ_INPUT` past the input (`InputIndex`), `READ_PUBLIC` past
+//! the public segment (`PublicIndex`; [`count`] gives none, [`count_with_public`] one), `POSEIDON2` over more
 //! than `POSEIDON2_MAX_WORDS` words or from a pointer at or above 2^30 (`Poseidon2WordCount`,
 //! `Poseidon2Ptr`), `KECCAK`/`SHA256` past their pointer limits (`KeccakPtrOutOfRange`,
 //! `Sha256PtrOutOfRange`) and an unknown syscall (`BadSyscall`). The one difference left is the
@@ -48,6 +48,18 @@ fn sext(x: u32, bits: u32) -> u32 {
 pub fn count(
     program: &Program,
     inputs: &[u32],
+    limit: u64,
+) -> Result<([u32; NUM_OUTPUTS], u64), ExecError> {
+    count_with_public(program, inputs, &[], limit)
+}
+
+/// [`count`] over a public segment: `READ_PUBLIC` reads `public`, as `execute`'s does (the EVM
+/// guest's block-context opcodes, fullnode #168).
+#[allow(dead_code)] // each `#[path]` user compiles this file on its own; not all read the segment
+pub fn count_with_public(
+    program: &Program,
+    inputs: &[u32],
+    public: &[u32],
     limit: u64,
 ) -> Result<([u32; NUM_OUTPUTS], u64), ExecError> {
     let mut regs = [0u32; 32];
@@ -143,7 +155,12 @@ pub fn count(
                             .ok_or(ExecError::InputIndex(arg0))?;
                         write = true;
                     }
-                    SYS_READ_PUBLIC => return Err(ExecError::PublicIndex(arg0)),
+                    SYS_READ_PUBLIC => {
+                        c = *public
+                            .get(arg0 as usize)
+                            .ok_or(ExecError::PublicIndex(arg0))?;
+                        write = true;
+                    }
                     SYS_KECCAK => {
                         if arg0 > KECCAK_PTR_LIMIT {
                             return Err(ExecError::KeccakPtrOutOfRange(arg0));

@@ -1,8 +1,9 @@
 //! The translated C built for the host (Task 6, ruling 1): many translated contracts, `evm-rt`
-//! (`evm_rt.c`, `u256.c`, `evm_call.c` and the precompiles) and `test/host_jmp.c` compiled with the
+//! (`evm_rt.c`, `u256.c`, `evm_call.c`, `evm_cancun.c`, `evm_block.c` and the precompiles) and `test/host_jmp.c` compiled with the
 //! host `cc` into one shared library, which this process loads and runs case after case — no
-//! emulator per case. Storage and Keccak are **the Rust FFI itself**: the library's `evm_sload`,
-//! `evm_sstore` and `evm_keccak256` forward to function pointers this side sets to
+//! emulator per case. Storage, Keccak and the block context are **the Rust FFI itself**: the
+//! library's `evm_sload`, `evm_sstore`, `evm_keccak256` and `evm_block_context` forward to
+//! function pointers this side sets to
 //! `evm_core::ffi`'s own `extern "C"` functions, so the storage tree, its witnesses and every hash
 //! are the interpreter's, as in the shim.
 //!
@@ -65,7 +66,7 @@ type RunFn = unsafe extern "C" fn(
     host: *mut c_void,
     out: *mut COut,
 ) -> u32;
-type HooksFn = unsafe extern "C" fn(*const c_void, *const c_void, *const c_void);
+type HooksFn = unsafe extern "C" fn(*const c_void, *const c_void, *const c_void, *const c_void);
 type DigestFn = unsafe extern "C" fn(idx: u32) -> *const u32;
 
 const HARNESS_C: &str = r#"/* evm2rv tests: the host harness around the translated contracts (tests/common/host.rs). */
@@ -76,19 +77,23 @@ const HARNESS_C: &str = r#"/* evm2rv tests: the host harness around the translat
 typedef uint32_t (*sload_fn)(void *, void *, const uint32_t *, uint32_t *);
 typedef uint32_t (*sstore_fn)(void *, void *, const uint32_t *, const uint32_t *);
 typedef void (*keccak_fn)(void *, const uint8_t *, uint32_t, uint8_t *);
+typedef uint32_t (*block_fn)(void *, uint32_t, uint32_t *);
 static sload_fn h_sload;
 static sstore_fn h_sstore;
 static keccak_fn h_keccak;
+static block_fn h_block;
 
 /* evm_core::ffi's functions, set by the Rust side before any run. */
-void fuzz_set_hooks(const void *a, const void *b, const void *c) {
+void fuzz_set_hooks(const void *a, const void *b, const void *c, const void *d) {
     h_sload = (sload_fn)a;
     h_sstore = (sstore_fn)b;
     h_keccak = (keccak_fn)c;
+    h_block = (block_fn)d;
 }
 uint32_t evm_sload(void *t, void *h, const uint32_t *s, uint32_t *o) { return h_sload(t, h, s, o); }
 uint32_t evm_sstore(void *t, void *h, const uint32_t *s, const uint32_t *v) { return h_sstore(t, h, s, v); }
 void evm_keccak256(void *h, const uint8_t *p, uint32_t n, uint8_t *out) { h_keccak(h, p, n, out); }
+uint32_t evm_block_context(void *h, uint32_t op, uint32_t *out) { return h_block(h, op, out); }
 
 uint64_t fuzz_cov[256];
 uint64_t fuzz_dyn_bad;
@@ -139,7 +144,7 @@ uint32_t fuzz_run(uint32_t idx, const uint8_t *code, uint32_t code_len, const ui
 "#;
 
 /// The runtime's sources, as the shim's build.rs lists them, and the host's setjmp.
-const RT_SOURCES: [&str; 9] = [
+const RT_SOURCES: [&str; 10] = [
     "evm_rt.c",
     "u256.c",
     "evm_call.c",
@@ -148,6 +153,7 @@ const RT_SOURCES: [&str; 9] = [
     "evm_secp256k1.c",
     "evm_bn254.c",
     "evm_cancun.c",
+    "evm_block.c",
     "test/host_jmp.c",
 ];
 
@@ -404,6 +410,7 @@ fn load(lib: &Path) -> Lib {
             evm_core::ffi::evm_sload as *const c_void,
             evm_core::ffi::evm_sstore as *const c_void,
             evm_core::ffi::evm_keccak256 as *const c_void,
+            evm_core::ffi::evm_block_context as *const c_void,
         );
         Lib {
             run: std::mem::transmute::<*mut c_void, RunFn>(sym(h, "fuzz_run")),

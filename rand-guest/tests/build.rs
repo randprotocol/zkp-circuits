@@ -81,17 +81,18 @@ fn info_and_check_agree_with_build_on_the_evm_image() {
     let info = Command::new(bin()).arg("info").arg(&image).output().unwrap();
     assert!(info.status.success(), "{}", String::from_utf8_lossy(&info.stderr));
     let s = String::from_utf8_lossy(&info.stdout);
-    // The committed interpreter is 15 167 program words: the 13 030 text words plus the
-    // 2 137-word prologue the loader synthesises. (It was 16 588 = 14 478 + 2 110 before
+    // The committed interpreter is 15 531 program words: the 13 349 text words plus the
+    // 2 182-word prologue the loader synthesises. (It was 15 167 = 13 030 + 2 137 before the
+    // block-context opcodes, fullnode #168; 16 588 = 14 478 + 2 110 before
     // ZKVM-117's harness savings, which also removed the separate Merkle loops; 20 077 = 17 985 +
     // 2 092 under storage layout 1 before ZKVM-105; 19 637 = 17 598 + 2 039 before ZKVM-103/104;
     // 18 009 = 16 370 + 1 639 in `docs/04-guests.md`, before MCOPY/TLOAD/TSTORE/CLZ.) The three
     // numbers add up because the prologue is the loader's own, counted rather than estimated
     // from the 773 non-zero data words (a two-word estimate would say 1 546 and be 591 words
     // short).
-    assert!(s.contains("text 13030 words"), "{s}");
-    assert!(s.contains("prologue 2137 words"), "{s}");
-    assert!(s.contains("program 15167 words"), "{s}");
+    assert!(s.contains("text 13349 words"), "{s}");
+    assert!(s.contains("prologue 2182 words"), "{s}");
+    assert!(s.contains("program 15531 words"), "{s}");
     assert!(s.contains("does not fit"), "the interpreter is over the 4096 cap: {s}");
     let check = Command::new(bin()).arg("check").arg(&image).args(["--max-words", "65535"]).output().unwrap();
     assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stdout));
@@ -161,14 +162,14 @@ fn a_guest_named_by_a_relative_path_builds_the_same_image() {
 
 #[test]
 fn the_cap_is_measured_against_the_loaders_word_count_not_an_estimate() {
-    // 15 167 is what `Program::from_flat_image` makes of `evm.bin`, so the cap must bite at
+    // 15 531 is what `Program::from_flat_image` makes of `evm.bin`, so the cap must bite at
     // exactly one word below it — not at the 14 576 an estimated two-word-per-data-word prologue
     // would give, which would let an over-cap image through.
     let image = root().join("guests-compiled/bin/evm.bin");
-    let over = Command::new(bin()).arg("check").arg(&image).args(["--max-words", "15166"]).output().unwrap();
+    let over = Command::new(bin()).arg("check").arg(&image).args(["--max-words", "15530"]).output().unwrap();
     assert!(!over.status.success(), "{}", String::from_utf8_lossy(&over.stdout));
-    assert!(String::from_utf8_lossy(&over.stdout).contains("15167 words (text 13030 + prologue 2137)"), "{}", String::from_utf8_lossy(&over.stdout));
-    let exact = Command::new(bin()).arg("check").arg(&image).args(["--max-words", "15167"]).output().unwrap();
+    assert!(String::from_utf8_lossy(&over.stdout).contains("15531 words (text 13349 + prologue 2182)"), "{}", String::from_utf8_lossy(&over.stdout));
+    let exact = Command::new(bin()).arg("check").arg(&image).args(["--max-words", "15531"]).output().unwrap();
     assert!(exact.status.success(), "{}", String::from_utf8_lossy(&exact.stdout));
 }
 
@@ -321,12 +322,13 @@ void main(void) {
 /// fullnode's own function computes for the committed `evm.bin` (cross-checked once by calling
 /// `randprotocol_core::program::program_id` on `Program::from_flat_image(evm.bin)` from a scratch
 /// crate depending on both, for the image before MCOPY/TLOAD/TSTORE/CLZ, whose id was
-/// `99694342…44762b`; the current one, like `47df46b2…f3978c`, `f056f928…67ec70` and
+/// `99694342…44762b`; the current one, like `ae5f0b2b…216aea` (before the block-context
+/// opcodes), `47df46b2…f3978c`, `f056f928…67ec70` and
 /// `4d94028f…bfe560` before it, is
 /// `rand_guest::chain::program_id`'s and has not been re-checked against fullnode); fullnode has no fixed test vector for it to compare against.
 #[test]
 fn info_prints_the_program_id_fullnode_computes() {
-    const EVM_PROGRAM_ID: &str = "ae5f0b2b29afc982b3d4a97a360723ea6f3f505ad2ccb9eac050c6af66216aea";
+    const EVM_PROGRAM_ID: &str = "0eff0627b135f3c4d9d366a9877c49c04d721933897c1f64918856814ce6ccc4";
     let o = Command::new(bin()).arg("info").arg(root().join("guests-compiled/bin/evm.bin")).output().unwrap();
     let s = String::from_utf8_lossy(&o.stdout);
     assert!(s.contains(&format!("program id {EVM_PROGRAM_ID}\n")), "{s}");

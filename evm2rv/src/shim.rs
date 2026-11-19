@@ -9,7 +9,7 @@
 //!   `=1.4.6`, and a generated `Cargo.lock` ([`cargo_lock`]) fixes it and its dependencies. One cargo feature,
 //!   `emit-outcome`, off by default, is for the parity test only (see `src/main.rs`).
 //! * `build.rs` — compiles `contract.c` and `evm-rt/`'s `evm_rt.c`, `u256.c`, the call family's
-//!   `evm_call.c`, the post-Shanghai opcodes' `evm_cancun.c` (only for a contract that uses one) and the precompiles (`precompiles.c`, `evm_bn.c`, `evm_secp256k1.c`, `evm_bn254.c`; with `rand-guest/guest.h` on
+//!   `evm_call.c`, the post-Shanghai opcodes' `evm_cancun.c` and the block-context opcodes' `evm_block.c` (each only for a contract that uses one) and the precompiles (`precompiles.c`, `evm_bn.c`, `evm_secp256k1.c`, `evm_bn254.c`; with `rand-guest/guest.h` on
 //!   the include path for the SHA-256 coprocessor) with the `cc` crate, driving the clang `rand-guest` would pick (`$CLANG`, else Homebrew's LLVM, else `clang`
 //!   on `PATH`, and only one with a `riscv32` target) with **exactly `rand-guest`'s C flags**
 //!   ([`C_FLAGS`], rv32im — never rv32imc — `-Os`, the path remap), inheriting no rustflags and
@@ -397,6 +397,10 @@ fn main() {
     {
         sources.push(rt.join("evm_cancun.c"));
     }
+    // The block-context opcodes' runtime likewise, only for a contract that uses one.
+    if contract.contains("evm_block_ctx(") {
+        sources.push(rt.join("evm_block.c"));
+    }
     let mut b = cc::Build::new();
     b.compiler(&clang)
         .archiver(llvm_tool(&clang, "llvm-ar"))
@@ -449,7 +453,7 @@ use evm_core::interp::{Buffers, Env, Halt, Log, Outcome, MAX_LOGS, MAX_RETURN_BY
 use evm_core::storage::StorageTree;
 use evm_core::u256::U256;
 use evm_core::Host;
-use guest_sdk::{halt, keccak, poseidon2, read_input, write_output};
+use guest_sdk::{halt, keccak, poseidon2, read_input, read_public, write_output};
 
 /// Words per `POSEIDON2` call (`evm2rv::guard::DIGEST_CHUNK`).
 const CHUNK: usize = 4096;
@@ -457,7 +461,7 @@ const CHUNK: usize = 4096;
 /// The code guard's buffer: one `POSEIDON2` call's words.
 static mut HASH_BUF: [u32; CHUNK] = [0; CHUNK];
 
-/// [`evm_core::Host`] as the machine's two syscalls (the interpreter guest's own).
+/// [`evm_core::Host`] as the machine's syscalls (the interpreter guest's own).
 struct Syscalls;
 
 impl Host for Syscalls {
@@ -468,6 +472,11 @@ impl Host for Syscalls {
         // SAFETY: `evm_core` calls this with `n <= words.len()` and `words.len() >= 8`, and `words`
         // is a live, exclusive `&mut` for the call — `guest_sdk::poseidon2`'s `# Safety` contract.
         unsafe { poseidon2(words.as_mut_ptr(), n) };
+    }
+    fn read_public(&mut self, idx: u32) -> u32 {
+        // The block-context opcodes' words (`evm_core::block`, via `evm_block_ctx`): an index
+        // past the public segment can never be satisfied, so a run that reads one has no proof.
+        read_public(idx)
     }
 }
 

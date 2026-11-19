@@ -90,14 +90,17 @@ fn images(stage: Stage) -> &'static Images {
 /// in `evm-rt` and the shim); it was `9cdb79e7…48c8`. Re-derived for ZKVM-105 (storage layout 2:
 /// `evm-core`'s depth-64 tree and the layout word in the preimage); it was `69052c42…e932`.
 /// Re-derived for ZKVM-117 (the in-place Merkle walk, witnesses read into place, the baked code
-/// hash); it was `c889e15c…cb9e`.
-const ERC20_HC: &str = "434cc062420fdaddef05777945aa0dd7711d8900675aec7d83b4a3034ba965f6";
+/// hash); it was `c889e15c…cb9e`. Re-derived for the block context (constraint set 11, fullnode
+/// #168: the shim's host gains `read_public`, `ffi.rs` the `evm_block_context` entry; clang 23.1.1,
+/// from CI's `coverage (evm2rv-pinned-hc)` run 44560870419); it was `434cc062…65f6`.
+const ERC20_HC: &str = "043fb8c5922612352712b4e123c1a14f1def4c8c963a4b90bacc92bdd0c743e3";
 
 /// The same for the stage-two translation (Task 8): a different program, so a different digest.
 /// Re-derived in Task 9 for the code guard; it was `87aba574…0ccad`. Re-derived for ZKVM-103/104;
 /// it was `a0feae92…8ff6`. Re-derived for ZKVM-105; it was `7c691208…8389`. Re-derived for
-/// ZKVM-117; it was `fa6d5ca0…493d`.
-const ERC20_HC_STAGE2: &str = "72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8";
+/// ZKVM-117; it was `fa6d5ca0…493d`. Re-derived for the block context (same run); it was
+/// `72ce1c04…77b8`.
+const ERC20_HC_STAGE2: &str = "fd8dd3afdd785a991993c0f17dcca9a7c2c4b4c3bf213e2354d9aa1ffbf6e400";
 
 /// `hc` of the stage-one ERC-20 translation (`--stage 1`), pinned (fix round 1, item 7). Uses
 /// the parity build.

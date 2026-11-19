@@ -12,8 +12,8 @@
 //! normally.
 
 use evm2rv::blocks::{
-    blocks, jumpdests, stack_effect, static_gas, warnings, Term, Warning, BLOCK_CTX_TRAPS, TRAP_TERM,
-    WARN_SET,
+    blocks, jumpdests, stack_effect, static_gas, warnings, Term, Warning, BLOCK_CTX_OPS,
+    BLOCK_CTX_TRAPS, TRAP_TERM, WARN_SET,
 };
 use evm_core::interp::MAX_CODE_BYTES;
 
@@ -59,14 +59,15 @@ fn jumpdests_excludes_push_immediates() {
     assert_eq!(jumpdests(&code), vec![2]);
 }
 
-/// Every byte but two: `ORIGIN` (0x32) and `CHAINID` (0x46) cost Shanghai's G_BASE = 2 in the
-/// translation (fix round 1 of Task 4, item 6 — a controller ruling). The interpreter traps on both,
-/// so its table has no gas for them, and the translation implements them.
+/// Every byte but nine: `ORIGIN` (0x32), `CHAINID` (0x46) and the seven [`BLOCK_CTX_OPS`] cost
+/// Shanghai's G_BASE = 2 in the translation at the block head (fix round 1 of Task 4, item 6 — a
+/// controller ruling; fullnode #168). The interpreter charges the same 2 inside each one's arm,
+/// once the context has shown it runs, so its table has 0 for them.
 #[test]
 fn static_gas_matches_interpreter_for_every_opcode_byte() {
     for op in 0u16..=255 {
         let op = op as u8;
-        if op == 0x32 || op == 0x46 {
+        if op == 0x32 || op == 0x46 || BLOCK_CTX_OPS.contains(&op) {
             assert_eq!(evm_core::interp::static_gas(op), 0);
             assert_eq!(static_gas(op), 2, "{op:#04x}: G_BASE in the translation");
             continue;
@@ -229,12 +230,44 @@ fn warnings_reports_statically_trapping_opcodes_with_pc() {
                 pc: 2,
                 opcode: 0x31
             },
-            Warning::Trap {
+            Warning::BlockContext {
                 pc: 5,
                 opcode: 0x42
             },
         ]
     );
+}
+
+/// The seven block-context opcodes a version-2 context defines (fullnode #168) are ordinary ops:
+/// they do not end a block, push one word, cost G_BASE at the head, and are warned as
+/// `BlockContext` — they trap unless the call is an `InvokeAt`. The four the context does not
+/// define stay terminators.
+#[test]
+fn the_block_context_opcodes_are_ordinary_ops_and_warned_as_such() {
+    assert_eq!(BLOCK_CTX_OPS, [0x3a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x48]);
+    assert_eq!(BLOCK_CTX_TRAPS, [0x40, 0x47, 0x49, 0x4a]);
+    for op in BLOCK_CTX_OPS {
+        assert!(!TRAP_TERM.contains(&op) && WARN_SET.contains(&op), "{op:#04x}");
+        let bs = blocks(&[op, 0x50, 0x00]);
+        assert_eq!(bs.len(), 1, "{op:#04x}: the block runs on past it");
+        assert_eq!(bs[0].term, Term::Stop, "{op:#04x}");
+        assert_eq!(bs[0].ops.len(), 3, "{op:#04x}");
+        assert_eq!(stack_effect(op), (0, 1), "{op:#04x}");
+        assert_eq!(static_gas(op), 2, "{op:#04x}");
+        assert_eq!(bs[0].static_gas, 2 + 2, "{op:#04x}: itself and the POP");
+        assert_eq!(bs[0].ops[0].gas_after, 2, "{op:#04x}");
+        assert_eq!((bs[0].min_depth, bs[0].max_growth), (0, 1), "{op:#04x}");
+        assert_eq!(
+            warnings(&[op]),
+            vec![Warning::BlockContext { pc: 0, opcode: op }],
+            "{op:#04x}"
+        );
+    }
+    for op in BLOCK_CTX_TRAPS {
+        assert!(TRAP_TERM.contains(&op) && WARN_SET.contains(&op), "{op:#04x}");
+        assert_eq!(blocks(&[op, 0x00])[0].term, Term::TrapOp(op), "{op:#04x}");
+        assert_eq!(warnings(&[op]), vec![Warning::Trap { pc: 0, opcode: op }], "{op:#04x}");
+    }
 }
 
 #[test]

@@ -19,7 +19,7 @@
 //! block's static gas was taken at the head and has not been "spent" yet in the interpreter's
 //! per-opcode accounting.
 //!
-//! **Traps.** The eighteen [`crate::blocks::TRAP_TERM`] opcodes and every byte the interpreter does
+//! **Traps.** The eleven [`crate::blocks::TRAP_TERM`] opcodes and every byte the interpreter does
 //! not implement are `evm_halt(EVM_HALT_TRAP, op)`.
 //!
 //! **The post-Shanghai opcodes** (`evm-rt/evm_cancun.c`): `MCOPY` is `evm_mcopy(dst, src, len)`,
@@ -46,7 +46,14 @@
 //! `evm_callvalue`, which the shim fills from the decoded `Env`; `ORIGIN` reads `evm_caller`;
 //! `CHAINID` is the `--chain-id` constant, baked in here so the image hash binds it — and
 //! translating code that contains `CHAINID` without one is an error ([`EmitError`]), never a
-//! silent default. The eleven block-context opcodes trap (they are in `TRAP_TERM`).
+//! silent default.
+//!
+//! **Block context** (fullnode #168): the seven [`crate::blocks::BLOCK_CTX_OPS`] are
+//! `evm_block_ctx(op, &dst)` (`evm-rt/evm_block.c`), which pushes the word a version-2 context
+//! defines — the interpreter's own decoding, `evm_core::block`, through `ffi.rs` — or halts
+//! `Trap(op)` under any other context version. `BLOCKHASH`, `SELFBALANCE`, `BLOBHASH` and
+//! `BLOBBASEFEE` trap (they are in `TRAP_TERM`). A contract with none of the seven is emitted
+//! exactly as before.
 //!
 //! **Code over `MAX_CODE_BYTES`** is one `Term::OutOfBounds` block, which halts `OutOfBounds`
 //! with `gas_used = 0` — the interpreter's `pre_halt` spends nothing (ruling 3) — so it sets the
@@ -145,7 +152,7 @@ fn push_c(v: &[u8; 32]) -> String {
 /// are the dynamic form (`goto dispatch`) — the emitter resolves a `PUSHn`-then-jump pair
 /// statically in [`translate`] instead.
 ///
-/// An opcode this crate traps on (the eighteen [`crate::blocks::TRAP_TERM`] opcodes and every byte
+/// An opcode this crate traps on (the eleven [`crate::blocks::TRAP_TERM`] opcodes and every byte
 /// the interpreter does not implement) is `evm_halt(EVM_HALT_TRAP, op)`.
 pub fn op_c(op: &Op, gas_after: u64, opts: &Options, calls: bool) -> Result<String, EmitError> {
     let bin = |f: &str| format!("{f}({}, {}, {}); evm_sp--;", s(2), s(1), s(2));
@@ -230,6 +237,10 @@ pub fn op_c(op: &Op, gas_after: u64, opts: &Options, calls: bool) -> Result<Stri
             Some(id) => format!("u256_from_u64(&evm_stack[evm_sp++], {id:#x}ull);"),
             None => return Err(EmitError::ChainIdRequired { pc: op.pc }),
         },
+        // The block-context opcodes: the word, or Trap(op) under any context version but 2.
+        0x3a | 0x41..=0x45 | 0x48 => {
+            format!("evm_block_ctx({o:#04x}, &evm_stack[evm_sp]); evm_sp++;")
+        }
         0x50 => "evm_sp--;".into(),
         0x51 => format!("evm_mload({}, {});", sat(1), s(1)),
         // MSTORE: offset on top, value second.

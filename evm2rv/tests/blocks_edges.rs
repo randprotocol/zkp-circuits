@@ -8,7 +8,7 @@
 
 use evm2rv::blocks::{
     blocks, jumpdests, stack_bounds, stack_effect, static_gas, warnings, Block, Op, Term,
-    Warning, CALL_FAMILY, TRAP_TERM, WARN_SET,
+    Warning, BLOCK_CTX_OPS, CALL_FAMILY, TRAP_TERM, WARN_SET,
 };
 use evm2rv::emit::mnemonic;
 use evm_core::interp::MAX_CODE_BYTES;
@@ -313,6 +313,8 @@ fn warnings_at_every_pc_shape() {
         let w = warnings(&[op]);
         let want = if CALL_FAMILY.contains(&op) {
             Warning::Call { pc: 0, opcode: op }
+        } else if BLOCK_CTX_OPS.contains(&op) {
+            Warning::BlockContext { pc: 0, opcode: op }
         } else {
             Warning::Trap { pc: 0, opcode: op }
         };
@@ -322,7 +324,7 @@ fn warnings_at_every_pc_shape() {
     let mut code = vec![0x7f];
     code.extend([0u8; 32]);
     code.push(0x42);
-    assert_eq!(warnings(&code), vec![Warning::Trap { pc: 33, opcode: 0x42 }]);
+    assert_eq!(warnings(&code), vec![Warning::BlockContext { pc: 33, opcode: 0x42 }]);
     // In dead code after a STOP: still reported (the CLI warns about it).
     assert_eq!(
         warnings(&[0x00, 0xf0]),

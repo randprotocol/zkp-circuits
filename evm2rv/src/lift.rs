@@ -573,6 +573,11 @@ impl<'f> Lift<'f> {
                 }
                 None => return Err(EmitError::ChainIdRequired { pc: op.pc }),
             },
+            // The block-context opcodes (fullnode #168): the word into a local, or Trap(op)
+            // under any context version but 2. Read when the op runs, never folded.
+            0x3a | 0x41..=0x45 | 0x48 => {
+                self.fresh(|d| format!("evm_block_ctx({o:#04x}, &{d});"))
+            }
             0x50 => {
                 self.pop();
                 String::new()

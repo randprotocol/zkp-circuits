@@ -167,7 +167,7 @@ fn pc_gas_stop_and_dead_code() {
     run_directed("control-pc-gas", &cases);
 }
 
-/// Every one of the eighteen `TRAP_TERM` opcodes halts the call (status 2, the limit spent), bare
+/// Every one of the eleven `TRAP_TERM` opcodes halts the call (status 2, the limit spent), bare
 /// and after enough pushes for its operands, as the interpreter traps on it before touching the
 /// stack.
 #[test]

@@ -17,7 +17,9 @@
 //!
 //! Cycles are counted by `rand-guest/tests/support/count.rs` — the emulator's instruction
 //! semantics without its per-cycle event log — and one run is checked against
-//! `rand_zkvm::emulator::execute` itself.
+//! `rand_zkvm::emulator::execute` itself. Every run is given an `InvokeAt`'s public segment (a
+//! version-2 context with the beacon, fullnode #168), so the block-context opcodes run and are
+//! measured like any other; an opcode that reads no public word costs the same over any segment.
 //!
 //! **What the test asserts.** Every figure moves whenever `evm.bin` is rebuilt, so the published
 //! file records the image it was measured on (the image's sha256, `evm.bin.sha256`). While the
@@ -38,7 +40,7 @@ use std::fmt::Write as _;
 use common::root;
 use evm2rv::compat::{self, thousands, Behaviour};
 use evm_core::u256::U256;
-use rand_zkvm::evm::{erc20_transfer, EvmCall, ALICE, BOB};
+use rand_zkvm::evm::{erc20_transfer, BlockFacts, EvmCall, ALICE, BOB};
 use rand_zkvm::isa::Program;
 
 /// More than any run here spends (an `SSTORE` is 2 900).
@@ -127,6 +129,18 @@ struct Bench {
     runs: usize,
 }
 
+/// The public segment of every run: a version-2 context with the beacon after the call binding.
+fn public() -> Vec<u32> {
+    BlockFacts {
+        height: 1_000_000,
+        timestamp_ms: 1_795_000_000_000,
+        chain_id: 22,
+        basefee: 100,
+        randomness: Some([0x5a; 32]),
+    }
+    .segment(&[0; 8])
+}
+
 impl Bench {
     /// A call of `code`: 64 bytes of calldata, slot 0 holding 5 with its witness supplied. From
     /// the ERC-20 fixture rather than a struct literal, so a new `EvmCall` field does not break
@@ -145,7 +159,8 @@ impl Bench {
     /// exceptionally would have measured nothing).
     fn cycles(&mut self, code: Vec<u8>) -> u64 {
         let words = Self::call(code).input_words();
-        let (out, n) = count::count(&self.program, &words, LIMIT).expect("the run fits the budget");
+        let (out, n) = count::count_with_public(&self.program, &words, &public(), LIMIT)
+            .expect("the run fits the budget");
         assert_eq!(out[0], 1, "the measured code did not run to STOP (status {})", out[0]);
         self.runs += 1;
         n
@@ -320,6 +335,10 @@ fn specs() -> Vec<Spec> {
     for op in [0x30, 0x33, 0x34, 0x36, 0x38, 0x3d, 0x58, 0x59, 0x5a, 0x5f] {
         add(op, s().op(&[op]).pop(1), None, "");
     }
+    // The block context: under a version-2 context with the beacon (every run's segment).
+    for op in [0x32, 0x3a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x48] {
+        add(op, s().op(&[op]).pop(1), None, "a version-2 context (an `InvokeAt`)");
+    }
     add(0x35, s().p1(0).op(&[0x35]).pop(1), None, "offset 0 of 64 bytes of calldata");
     for op in [0x37, 0x39] {
         add(
@@ -446,7 +465,7 @@ fn measure() -> Measured {
     };
     // The counter is the emulator: the same run through `execute` takes the same cycles.
     let words = Bench::call(code).input_words();
-    let exec = rand_zkvm::emulator::execute(&b.program, &words, &[], 1 << 20).unwrap();
+    let exec = rand_zkvm::emulator::execute(&b.program, &words, &public(), 1 << 20).unwrap();
     assert_eq!(exec.cycles() as u64, short, "count.rs and the emulator disagree");
     assert_eq!(exec.outputs[0], 1);
 
