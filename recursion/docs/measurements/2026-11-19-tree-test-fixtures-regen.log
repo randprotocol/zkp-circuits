@@ -1,0 +1,37 @@
+    Finished `release` profile [optimized] target(s) in 0.07s
+     Running tests/tree.rs (target/release/deps/tree-2a46fab82d70f285)
+
+running 1 test
+test generate_test_tree_fixtures has been running for over 60 seconds
+TREE_TEST_FIXTURE leaf-0: tier 18 reg 18 ram 19 poseidon2 14 reduce 16 bytes 273897
+TREE_TEST_FIXTURE step-0: tier 18 reg 19 ram 20 poseidon2 15 reduce 17 bytes 282564
+TREE_TEST_FIXTURE step-1: tier 18 reg 19 ram 20 poseidon2 15 reduce 17 bytes 281125
+TREE_TEST_FIXTURE root: tier 18 reg 19 ram 20 poseidon2 15 reduce 17 bytes 281254
+TREE_TEST_FIXTURE foreign-0: tier 18 reg 18 ram 19 poseidon2 14 reduce 16 bytes 271145
+test generate_test_tree_fixtures ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 24 filtered out; finished in 1390.83s
+
+	Command being timed: "cargo test --release --features parallel --test tree generate_test_tree_fixtures -- --ignored --exact --nocapture"
+	User time (seconds): 10018.76
+	System time (seconds): 744.41
+	Percent of CPU this job got: 773%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 23:11.04
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 19868380
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 0
+	Minor (reclaiming a frame) page faults: 106596826
+	Voluntary context switches: 699592
+	Involuntary context switches: 169110
+	Swaps: 0
+	File system inputs: 0
+	File system outputs: 5040
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0

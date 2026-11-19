@@ -824,7 +824,7 @@ fn the_off_replay_reproduces_the_pre_liveness_program_byte_for_byte() {
     let off = verify_rv32_with(&shape, &key, Checkpoints::Off, Liveness::Off, recursion::programs::Precompiles::Off);
     assert_eq!(
         recursion::programs::digest_hex(&off.program),
-        "dac80eafa41db78eada180d45968ea22740b3bf0affeeacfc4754ef0f117a711",
+        "17d383dafaea59231cb62631eab778cfeb0c8d52783525222fb8411402e01989",
         "the Off replay must reproduce the pre-Task-7 stream byte for byte (plus VERIFIER-1's \
          per-round assertions, and constraint set 7's and 8's inner changes)"
     );

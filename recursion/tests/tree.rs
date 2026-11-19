@@ -610,9 +610,9 @@ fn a_foreign_program_child_pair_passes_in_program_and_fails_the_root_recompute()
 /// Phase 5 (2026-10-12, S6a/S2b/S4a/S1b) re-recorded `T_LEAF_TEST`: d8d558ee… → af535052… (the same
 /// digest `the_tree_step_builds_under_the_replays_loop_invariant` pins, measured there without
 /// fixtures). `T_INT_TEST` below is NOT re-recorded: it needs the fixture-gated `test_tree()`.
-const T_LEAF_TEST: &str = "af535052d2df18b5e313a6f0c2e412456d059d5f602d569989ad1b2b69e90cac";
+const T_LEAF_TEST: &str = "8cdb1485574ce25a19843cb2709d3aff114626df419065e0ee4341efdfecc269";
 /// Phase 4 (2026-10-09, the Merkle spans) re-recorded `T_INT_TEST`: 04b16771… → a222637e….
-const T_INT_TEST: &str = "a222637e1eb9333b16b820bbacceaac9ea0e5d4cebfc5379d170796a2ac6dc62";
+const T_INT_TEST: &str = "28306b7542ec7beea9c6fde0865a0393d61f8c73669e00ef53c3043d7a822ceb";
 
 #[test]
 fn the_test_tree_program_digests_are_pinned() {

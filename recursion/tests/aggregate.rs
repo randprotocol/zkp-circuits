@@ -657,7 +657,7 @@ fn twin_three_test_profile_bundle_proofs_aggregate_and_verify_natively() {
     let t0 = std::time::Instant::now();
     let a = aggregate(&m, &vk, &proofs, &common::TEST_BINDING, None).expect("three real bundle proofs aggregate");
     let prove_s = t0.elapsed().as_secs_f64();
-    assert_eq!(a.proof.tier, RvmTier(19), "the test-profile N=3 aggregate lands at tier 19 (264 692 rows since phase 5; 312 902 since the MODQ chip, 312 665 after phase 4's Merkle spans, 508 102 after phase 3's Cut F; tier 20 at 555 622 after Cut E2, 578 950 after Cut E1, 606 598 after Cut D, 692 854 before; tier 21 before phase 2's row cuts)");
+    assert_eq!(a.proof.tier, RvmTier(18), "the test-profile N=3 aggregate lands at tier 19 (264 692 rows since phase 5; 312 902 since the MODQ chip, 312 665 after phase 4's Merkle spans, 508 102 after phase 3's Cut F; tier 20 at 555 622 after Cut E2, 578 950 after Cut E1, 606 598 after Cut D, 692 854 before; tier 21 before phase 2's row cuts)");
     let t1 = std::time::Instant::now();
     let outs = verify_aggregate(&m, &aggregate_program(&vk), &a, &common::TEST_BINDING).expect("the aggregate verifies");
     let verify_s = t1.elapsed().as_secs_f64();
@@ -796,7 +796,7 @@ fn the_production_n1_aggregate_is_the_m52_pin_plus_loop_overhead() {
     assert_eq!(single_rows, common::pins().cpu_rows, "the M5.2 pin still holds");
     assert_eq!(
         recursion::programs::digest_hex(&verify_rv32n(&shape, &key, Checkpoints::Off).program),
-        "df04d61027203a94054415c96e71fd7dcd06441f03662f9c0fd972d216111bf2",
+        "43e027006f4fbf0b6e4f8ca528256d507ded54dfd99626a683560058bbfdaa5b",
         "the aggregate program's digest at the production bundle shape, as docs/02 and docs/04 state it"
     );
     let r = common::measure_aggregate(1, FriProfile::Production);

@@ -1,0 +1,119 @@
+    Finished `release` profile [optimized] target(s) in 0.06s
+     Running tests/tree.rs (target/release/deps/tree-2a46fab82d70f285)
+
+running 25 tests
+test a_child_of_the_wrong_shape_is_refused_by_the_tape_builder ... ok
+test a_foreign_program_child_pair_is_refused_by_verify_tree_at_the_root_digest ... 
+thread 'a_foreign_program_child_pair_is_refused_by_verify_tree_at_the_root_digest' (21432) panicked at tests/tree.rs:650:5:
+assertion `left == right` failed: vk_leaf, the test leaf's key
+  left: [6062516131854867443, 2935141641792004755, 12169913961352307550, 13853708452307482465]
+ right: [8319022251449045440, 6921460171031583545, 12120586048388560564, 2237657693139026209]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test a_foreign_program_child_pair_passes_in_program_and_fails_the_root_recompute ... ok
+test a_tamper_in_either_child_is_refused_at_the_named_step ... ok
+test a_wrong_hinted_cap_with_honest_children_is_refused_in_program ... ok
+test aggregate_tree_refuses_a_bad_layout_and_a_depth_past_a_non_fixed_list_before_proving ... ok
+test an_unused_trailing_key_leaves_the_test_roots_digest_unchanged ... 
+thread 'an_unused_trailing_key_leaves_the_test_roots_digest_unchanged' (21443) panicked at tests/tree.rs:650:5:
+assertion `left == right` failed: vk_leaf, the test leaf's key
+  left: [6062516131854867443, 2935141641792004755, 12169913961352307550, 13853708452307482465]
+ right: [8319022251449045440, 6921460171031583545, 12120586048388560564, 2237657693139026209]
+FAILED
+test generate_test_tree_fixtures ... ignored, tree Task 1b: proves the test tree's steps and root (tier 18 since phase 4, tier 19 before; tests/pins.json tree_test.step_leaf_tier; re-run 2026-10-11 in 1821 s, docs/measurements/2026-10-11-tree-test-fixtures-phase4-laptop.log; at tier 19 34.3 GB max RSS measured for a step, 33.2 GB for the root) — this 48 GB laptop, one proving process at a time
+test swapped_children_and_another_binding_publish_digests_the_chain_never_computes ... ok
+test the_fixture_gated_tests_report_their_state ... TREE-FIXTURES present under /root/zkp-circuits/recursion/target/recursion-fixtures/tree: the 12 fixture-gated tests run (and fail if a fixture is stale and RECURSION_REQUIRE_TREE_FIXTURES is set, skip otherwise)
+ok
+test the_gated_count_is_the_number_of_gated_tests ... ok
+test the_interior_step_verifies_its_own_output_at_the_test_profile ... TREE_TEST_R3 reduce rows per child: rv32t_leaf 32912 (x2 = 65824), rv32t_int 33328 (x2 = 66656); S_T [18, 19, 20, 15, 17, 17, 16, 1, 1, 1, 2, 3, 3, 1, 3, 2, 3, 1] root [18, 19, 20, 15, 17, 17, 16, 1, 1, 1, 2, 3, 3, 1, 3, 2, 3, 1]
+ok
+test the_reduce_height_is_canonical_in_the_tree_step_at_n2 ... ok
+test the_step_program_at_the_roots_shape_is_rv32t_int_the_fixed_point ... 
+thread 'the_step_program_at_the_roots_shape_is_rv32t_int_the_fixed_point' (21450) panicked at tests/tree.rs:576:5:
+assertion `left == right` failed: the fixed-point step program at S_root
+  left: "28306b7542ec7beea9c6fde0865a0393d61f8c73669e00ef53c3043d7a822ceb"
+ right: "a222637e1eb9333b16b820bbacceaac9ea0e5d4cebfc5379d170796a2ac6dc62"
+FAILED
+test the_tape_builder_shape_checks_both_children_before_replaying_either ... ok
+test the_test_tree_genesis_section_prints_as_the_nodes_tree_config ... {
+  "shape": { "profile": "Test", "tier": 14, "program_log_height": 12, "input_log_height": 10, "keccak_log_height": 0, "sha256_log_height": 0, "public_log_height": 7, "mem_log_height": 16 },
+  "leaf_size": 1,
+  "max_depth": 2,
+  "leaf": { "tier": 18, "reg_log_height": 18, "ram_log_height": 19, "poseidon2_log_height": 14, "reduce_log_height": 16 },
+  "vk_leaf": [6062516131854867443, 2935141641792004755, 12169913961352307550, 13853708452307482465],
+  "steps": [
+    {
+      "heights": { "tier": 18, "reg_log_height": 19, "ram_log_height": 20, "poseidon2_log_height": 15, "reduce_log_height": 17 },
+      "program_digest": [10149728748137407066, 1838661284965202687, 1244725087334065632, 17168638702976287337],
+      "key": [10036650859064265295, 13337631390026019592, 4814039541265315791, 5631597689763092810]
+    },
+    {
+      "heights": { "tier": 18, "reg_log_height": 19, "ram_log_height": 20, "poseidon2_log_height": 15, "reduce_log_height": 17 },
+      "program_digest": [2895932711777369070, 12233744578567078803, 15429205275665367279, 6035672587701464299],
+      "key": [7115581729688826696, 5583489473261045992, 16493444118130474063, 4362294868991692155]
+    }
+  ]
+}
+
+
+thread 'the_test_tree_genesis_section_prints_as_the_nodes_tree_config' (21453) panicked at tests/tree.rs:872:23:
+assertion `left == right` failed: the printed section moved; regenerate /root/zkp-circuits/recursion/tests/tree-test-genesis.json and re-vendor
+  left: "{\n  \"shape\": { \"profile\": \"Test\", \"tier\": 14, \"program_log_height\": 12, \"input_log_height\": 10, \"keccak_log_height\": 0, \"sha256_log_height\": 0, \"public_log_height\": 7, \"mem_log_height\": 16 },\n  \"leaf_size\": 1,\n  \"max_depth\": 2,\n  \"leaf\": { \"tier\": 18, \"reg_log_height\": 18, \"ram_log_height\": 19, \"poseidon2_log_height\": 14, \"reduce_log_height\": 16 },\n  \"vk_leaf\": [6062516131854867443, 2935141641792004755, 12169913961352307550, 13853708452307482465],\n  \"steps\": [\n    {\n      \"heights\": { \"tier\": 18, \"reg_log_height\": 19, \"ram_log_height\": 20, \"poseidon2_log_height\": 15, \"reduce_log_height\": 17 },\n      \"program_digest\": [10149728748137407066, 1838661284965202687, 1244725087334065632, 17168638702976287337],\n      \"key\": [10036650859064265295, 13337631390026019592, 4814039541265315791, 5631597689763092810]\n    },\n    {\n      \"heights\": { \"tier\": 18, \"reg_log_height\": 19, \"ram_log_height\": 20, \"poseidon2_log_height\": 15, \"reduce_log_height\": 17 },\n      \"program_digest\": [2895932711777369070, 12233744578567078803, 15429205275665367279, 6035672587701464299],\n      \"key\": [7115581729688826696, 5583489473261045992, 16493444118130474063, 4362294868991692155]\n    }\n  ]\n}\n"
+ right: "{\n  \"shape\": { \"profile\": \"Test\", \"tier\": 14, \"program_log_height\": 12, \"input_log_height\": 10, \"keccak_log_height\": 0, \"sha256_log_height\": 0, \"public_log_height\": 7, \"mem_log_height\": 16 },\n  \"leaf_size\": 1,\n  \"max_depth\": 2,\n  \"leaf\": { \"tier\": 18, \"reg_log_height\": 19, \"ram_log_height\": 19, \"poseidon2_log_height\": 14, \"reduce_log_height\": 16 },\n  \"vk_leaf\": [8319022251449045440, 6921460171031583545, 12120586048388560564, 2237657693139026209],\n  \"steps\": [\n    {\n      \"heights\": { \"tier\": 18, \"reg_log_height\": 19, \"ram_log_height\": 20, \"poseidon2_log_height\": 15, \"reduce_log_height\": 17 },\n      \"program_digest\": [15624492264872459690, 13438365890077805486, 740702016226430670, 12107065922492980627],\n      \"key\": [149934054759036529, 11853972217771236064, 7974370166788545537, 4681341164698736412]\n    },\n    {\n      \"heights\": { \"tier\": 18, \"reg_log_height\": 19, \"ram_log_height\": 20, \"poseidon2_log_height\": 15, \"reduce_log_height\": 17 },\n      \"program_digest\": [11683009776684970811, 1637094454979373769, 16865520239507166073, 15091695848209701986],\n      \"key\": [17974589521606301101, 12194447673073698417, 12600030651550503010, 948039196462741351]\n    }\n  ]\n}\n"
+FAILED
+test the_test_tree_program_digests_are_pinned ... TREE_TEST_DIGESTS t_leaf 8cdb1485574ce25a19843cb2709d3aff114626df419065e0ee4341efdfecc269 t_int 28306b7542ec7beea9c6fde0865a0393d61f8c73669e00ef53c3043d7a822ceb
+
+thread 'the_test_tree_program_digests_are_pinned' (21454) panicked at tests/tree.rs:623:5:
+assertion `left == right` failed: rv32t_leaf at the test leaf shape
+  left: "8cdb1485574ce25a19843cb2709d3aff114626df419065e0ee4341efdfecc269"
+ right: "af535052d2df18b5e313a6f0c2e412456d059d5f602d569989ad1b2b69e90cac"
+FAILED
+test the_test_tree_proves_and_every_level_publishes_the_host_digest ... TREE_TEST_INT rows 152009 tier 18 step_bytes 282564 281125 root_bytes 281254
+
+thread 'the_test_tree_proves_and_every_level_publishes_the_host_digest' (21455) panicked at tests/tree.rs:501:5:
+assertion `left == right` failed
+  left: 152009
+ right: 185267
+FAILED
+test the_tree_shapes_rebuild_the_test_tree_programs_and_keys ... 
+thread 'the_tree_shapes_rebuild_the_test_tree_programs_and_keys' (21456) panicked at tests/tree.rs:827:5:
+assertion `left == right` failed: the per-level step programs
+  left: ["8cdb1485574ce25a19843cb2709d3aff114626df419065e0ee4341efdfecc269", "28306b7542ec7beea9c6fde0865a0393d61f8c73669e00ef53c3043d7a822ceb"]
+ right: ["af535052d2df18b5e313a6f0c2e412456d059d5f602d569989ad1b2b69e90cac", "a222637e1eb9333b16b820bbacceaac9ea0e5d4cebfc5379d170796a2ac6dc62"]
+FAILED
+test the_tree_step_accepts_two_real_leaves_and_publishes_the_host_digest ... TREE_TEST phases rv32t [("tree preamble: the binding, the child cap, vk_c, the interface state", 386), ("phases 0-4: header, transcript, commitments, terminal sum", 1621), ("phase 5: constraint evaluation at zeta", 39888), ("phase 6 preamble: claimed evals, betas, final poly, pow, indices", 42750), ("query segments: tape reads", 14448), ("queries: merkle walks, reduction, folds", 50400), ("the two-child loop", 82), ("post-loop: the final permutation", 10)]
+TREE_TEST phases rv32r [("phases 0-4: header, transcript, commitments, terminal sum", 861), ("phase 5: constraint evaluation at zeta", 19944), ("phase 6 preamble: claimed evals, betas, final poly, pow, indices", 21375), ("query segments: tape reads", 7224), ("queries: merkle walks, reduction, folds", 25200), ("phase 8: the interface digest", 311)]
+TREE_TEST child 74605 step_leaf 149586 overhead 376 tier Some(Tier(18)) program 76840 instrs
+ok
+test the_tree_step_builds_under_the_replays_loop_invariant ... ok
+test the_tree_step_program_reads_the_child_shape_words_only ... ok
+test verify_tree_accepts_the_test_tree ... 
+thread 'verify_tree_accepts_the_test_tree' (21460) panicked at tests/tree.rs:650:5:
+assertion `left == right` failed: vk_leaf, the test leaf's key
+  left: [6062516131854867443, 2935141641792004755, 12169913961352307550, 13853708452307482465]
+ right: [8319022251449045440, 6921460171031583545, 12120586048388560564, 2237657693139026209]
+FAILED
+test verify_tree_names_every_refusal ... 
+thread 'verify_tree_names_every_refusal' (21461) panicked at tests/tree.rs:650:5:
+assertion `left == right` failed: vk_leaf, the test leaf's key
+  left: [6062516131854867443, 2935141641792004755, 12169913961352307550, 13853708452307482465]
+ right: [8319022251449045440, 6921460171031583545, 12120586048388560564, 2237657693139026209]
+FAILED
+test verify_tree_selects_the_per_level_key_with_the_last_entry_repeating ... ok
+
+failures:
+
+failures:
+    a_foreign_program_child_pair_is_refused_by_verify_tree_at_the_root_digest
+    an_unused_trailing_key_leaves_the_test_roots_digest_unchanged
+    the_step_program_at_the_roots_shape_is_rv32t_int_the_fixed_point
+    the_test_tree_genesis_section_prints_as_the_nodes_tree_config
+    the_test_tree_program_digests_are_pinned
+    the_test_tree_proves_and_every_level_publishes_the_host_digest
+    the_tree_shapes_rebuild_the_test_tree_programs_and_keys
+    verify_tree_accepts_the_test_tree
+    verify_tree_names_every_refusal
+
+test result: FAILED. 15 passed; 9 failed; 1 ignored; 0 measured; 0 filtered out; finished in 70.12s
+
+error: test failed, to rerun pass `--test tree`
