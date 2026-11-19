@@ -1,13 +1,13 @@
 //! ZKVM-113 item 2: a constraint-set version bound into the rVM's verifier key
 //! (`machine::KeyVersion`; `docs/11-next-levers.md` §2). The acceptance line is "an rVM key
 //! built at one constraint set refuses a proof made at another; a test shows it" — the third
-//! test below. The first shows the keys that exist today did not move (`tests/verifier_key.rs`
-//! pins their caps and runs unchanged).
+//! test below. Live since constraint set 11: the first shows the default machine is at
+//! `Set(RVM_CONSTRAINT_SET)` and its key is not the set-10 (`Unbound`) one.
 //!
 //! Tier 8, a fourteen-instruction program that touches every table: seconds.
 use p3_field::{PrimeCharacteristicRing, PrimeField64};
 use recursion::isa::{Instr, Op, Program, F};
-use recursion::machine::{FriProfile, KeyVersion, Machine, Tier, VerifyError, NEXT_CONSTRAINT_SET};
+use recursion::machine::{FriProfile, KeyVersion, Machine, Tier, VerifyError, LIVE_KEY_VERSION, RVM_CONSTRAINT_SET};
 
 fn toy() -> Program {
     let i = |op, rd, ra, b: u64| Instr { op, rd, ra, b: F::from_u64(b) };
@@ -39,16 +39,19 @@ fn cap(m: &Machine, p: &Program) -> Vec<u64> {
     pre.commitment.roots().iter().flatten().map(|x| x.as_canonical_u64()).collect()
 }
 
-/// `Machine::new` is `Unbound`, and an `Unbound` machine made through the opt-in constructor
-/// holds the same key: the default path's labels are the ones every existing key was made
-/// with.
+/// `Machine::new` is at `Set(RVM_CONSTRAINT_SET)` (= 11 at the cut that made it live), holds the
+/// same key as an explicitly versioned machine, and not the set-10 (`Unbound`) key.
 #[test]
-fn the_default_machine_is_unbound_and_its_key_did_not_move() {
+fn the_default_machine_is_at_the_live_set_and_its_key_moved() {
     let p = toy();
+    assert_eq!(RVM_CONSTRAINT_SET, 11);
+    assert_eq!(LIVE_KEY_VERSION, KeyVersion::Set(RVM_CONSTRAINT_SET));
     let default = Machine::new(FriProfile::Test);
-    assert_eq!(default.key_version(), KeyVersion::Unbound);
-    let explicit = Machine::with_key_version(FriProfile::Test, KeyVersion::Unbound);
+    assert_eq!(default.key_version(), LIVE_KEY_VERSION);
+    let explicit = Machine::with_key_version(FriProfile::Test, KeyVersion::Set(RVM_CONSTRAINT_SET));
     assert_eq!(cap(&default, &p), cap(&explicit, &p));
+    let unbound = Machine::with_key_version(FriProfile::Test, KeyVersion::Unbound);
+    assert_ne!(cap(&default, &p), cap(&unbound, &p), "the live key is not the set-10 one");
 }
 
 /// The version decides the key: the same program, tier and shape under `Unbound`, set `n` and
@@ -56,8 +59,7 @@ fn the_default_machine_is_unbound_and_its_key_did_not_move() {
 #[test]
 fn every_version_has_its_own_key() {
     let p = toy();
-    let n = NEXT_CONSTRAINT_SET;
-    assert_eq!(n, rand_zkvm::machine::CONSTRAINT_SET + 1);
+    let n = RVM_CONSTRAINT_SET;
     let caps: Vec<Vec<u64>> = [KeyVersion::Unbound, KeyVersion::Set(n), KeyVersion::Set(n + 1), KeyVersion::Set(0)]
         .iter()
         .map(|v| cap(&Machine::with_key_version(FriProfile::Test, *v), &p))
@@ -72,12 +74,12 @@ fn every_version_has_its_own_key() {
 }
 
 /// The acceptance test: a proof made at one version verifies at that version and is refused at
-/// every other — an old (unbound) key's proof by a versioned verifier, a versioned proof by
-/// today's verifier, and one set's proof by the next set's.
+/// every other — a set-10 (unbound) key's proof by the live verifier, a live proof by a set-10
+/// verifier, and one set's proof by the next set's.
 #[test]
 fn a_key_built_at_one_constraint_set_refuses_a_proof_made_at_another() {
     let p = toy();
-    let n = NEXT_CONSTRAINT_SET;
+    let n = RVM_CONSTRAINT_SET;
     let versions = [KeyVersion::Unbound, KeyVersion::Set(n), KeyVersion::Set(n + 1)];
     let machines: Vec<Machine> = versions.iter().map(|v| Machine::with_key_version(FriProfile::Test, *v)).collect();
     for (i, prover) in machines.iter().enumerate() {
@@ -91,7 +93,11 @@ fn a_key_built_at_one_constraint_set_refuses_a_proof_made_at_another() {
             }
         }
     }
-    // And the default machine is the Unbound one: it accepts what `machines[0]` proved.
-    let (proof, _) = machines[0].prove(&p, &[], None).unwrap();
-    Machine::new(FriProfile::Test).verify(&p, &proof).unwrap();
+    // And the default machine is the live one: it accepts what `machines[1]` proved and
+    // refuses what the set-10 machine proved.
+    let live = Machine::new(FriProfile::Test);
+    let (proof, _) = machines[1].prove(&p, &[], None).unwrap();
+    live.verify(&p, &proof).unwrap();
+    let (old, _) = machines[0].prove(&p, &[], None).unwrap();
+    assert!(matches!(live.verify(&p, &old), Err(VerifyError::Batch(_))));
 }
