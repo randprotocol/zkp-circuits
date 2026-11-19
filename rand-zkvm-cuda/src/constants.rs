@@ -1,5 +1,7 @@
-//! The Poseidon2 round constants the engines hash with. For the zkVM's own seed
-//! (`table::PERM_SEED`, "RandZK") they come from the committed table in
+//! The Poseidon2 round constants the engines hash with. For the zkVM's own tag
+//! (`table::PERM_SEED`, "RandZK" — since constraint set 11 an opaque tag: the table is the Grain
+//! derivation, equal to Plonky3's `GOLDILOCKS_POSEIDON2_RC_8_*`, not a seeded draw) they come from
+//! the committed table in
 //! `research/src/poseidon2_constants.rs` (audit finding ZKV-2), compiled into this crate by
 //! `#[path]` below — the one table `rand_zkvm` builds its permutation and its poseidon2 chip
 //! from, not a copy of it. Any other seed (this crate's own tests only) still regenerates the

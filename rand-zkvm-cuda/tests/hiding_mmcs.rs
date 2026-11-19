@@ -10,7 +10,7 @@ use rand_zkvm_cuda::merkle::mmcs::{HidingMmcs, P3Hiding, Compress, Hash, Perm};
 
 const SEED: u64 = 0x5261_6e64_5a4b;
 
-fn p3(rng_seed: u64) -> P3Hiding { let p = Perm::new_from_rng_128(&mut StdRng::seed_from_u64(SEED)); P3Hiding::new(Hash::new(p.clone()), Compress::new(p), 2, StdRng::seed_from_u64(rng_seed)) }
+fn p3(rng_seed: u64) -> P3Hiding { let p: Perm = p3_goldilocks::default_goldilocks_poseidon2_8(); P3Hiding::new(Hash::new(p.clone()), Compress::new(p), 2, StdRng::seed_from_u64(rng_seed)) }
 fn ours(rng_seed: u64) -> HidingMmcs<CpuHashEngine> { HidingMmcs::new(Arc::new(CpuHashEngine::new(SEED)), SEED, 2, StdRng::seed_from_u64(rng_seed)) }
 fn mats(rng: &mut StdRng, shape: &[(usize, usize)]) -> Vec<RowMajorMatrix<Goldilocks>> {
     shape.iter().map(|&(h, w)| RowMajorMatrix::new((0..h * w).map(|_| Goldilocks::from_u64(rng.random::<u64>() % 0xFFFF_FFFF_0000_0001)).collect(), w)).collect()

@@ -14,7 +14,7 @@ type Compress = TruncatedPermutation<Perm, 2, 4, 8>;
 type Packing = <Goldilocks as Field>::Packing;
 type Mmcs3 = MerkleTreeMmcs<Packing, Packing, Hash, Compress, 2, 4>;
 
-fn mmcs() -> Mmcs3 { let p = Perm::new_from_rng_128(&mut StdRng::seed_from_u64(SEED)); Mmcs3::new(Hash::new(p.clone()), Compress::new(p), 2) }
+fn mmcs() -> Mmcs3 { let p: Perm = p3_goldilocks::default_goldilocks_poseidon2_8(); Mmcs3::new(Hash::new(p.clone()), Compress::new(p), 2) }
 fn rand_mat(rng: &mut StdRng, h: usize, w: usize) -> Vec<u64> { (0..h * w).map(|_| rng.random::<u64>() % 0xFFFF_FFFF_0000_0001).collect() }
 fn to_p3(v: &[u64], w: usize) -> RowMajorMatrix<Goldilocks> { RowMajorMatrix::new(v.iter().map(|&x| Goldilocks::from_u64(x)).collect(), w) }
 

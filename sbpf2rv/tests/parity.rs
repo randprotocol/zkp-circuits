@@ -596,8 +596,10 @@ fn spl_burn(amount: u64) -> SbpfCall {
 }
 
 /// `hc` of the translated SPL Token image (Homebrew clang 23.1.1, rustc 1.98.1), and its program
-/// words (the loader's count, against the 65 535-word cap).
-const SPL_TOKEN_HC: &str = "d542bd6f272a33102199324bf0269c1c2ef6471fd41bfed0bedc1b85dbf44627";
+/// words (the loader's count, against the 65 535-word cap). Re-derived for constraint set 11's
+/// Grain Poseidon2 constants (ZKVM-107) from the same image bytes — the image built here digests to
+/// set 10's `d542bd6f…4627` under the old constants, so only the hash moved; it was that.
+const SPL_TOKEN_HC: &str = "77919dab5ec22e58729064e0711fbf57dc040785eb0612a73e6ad0c4370a42b7";
 const SPL_TOKEN_WORDS: usize = 63_968;
 
 /// The SPL Token translation, built once per test binary: several tests use it, and two builds of
