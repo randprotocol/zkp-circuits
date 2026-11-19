@@ -847,9 +847,10 @@ ships included: regenerate it.
    gas word moves by the table above (`bundle`, `auth`: `gas_max` at their tier and heights).
 3. `BUILD_CONSTRAINT_SET` to 11, and the set-10 chains (and any still listed for set 9) into
    `CHAINS_THIS_BUILD_CANNOT_RUN` by genesis hash with a `CONSTRAINT_SET_10_REASON` — the
-   constraint-set-10 checklist above, one set on. `check_build_runs_genesis` keys on guest hcs, and
-   no guest image changed in set 11 (`guests-compiled/bin/*` are byte-identical; a guest does not
-   embed a weight), so that check will not catch a set-10 database under a set-11 binary.
+   constraint-set-10 checklist above, one set on. `check_build_runs_genesis` keys on guest hcs;
+   no guest image changed for the weights (a guest does not embed a weight), though both EVM
+   images moved for the block context (below), so that check catches a set-10 database under a
+   set-11 binary only through the EVM guest's hc.
 4. Re-export and re-pin every shipped verifier key blob and every pinned key digest
    (`inner_vk_digest`, the `msauth` tier-18 blob's SHA-256).
 5. Re-pin the rVM side from `recursion/` (below): `verify_rv32.digest`, `aggregate_program_digest`,
@@ -917,6 +918,51 @@ the pins they feed are left at their old values, nothing is guessed:
 5. *The CUDA backend* (`rand-zkvm-cuda`): mirrors no weight and no cpu width (it takes the trace
    width from the matrix), so nothing to re-pin; its device tests need a GPU host and were not
    run.
+
+### Set 11: the EVM block context (fullnode #168)
+
+The guest half of fullnode `docs/evm-block-context.md` (`feat/cs11-evm-block-context`, on
+`feat/cs11-integration`). An `InvokeAt`'s public segment carries a **version-2 context**: the
+reference block's height, time in seconds, chain id, basefee, a randomness flag and the beacon's
+32 bytes, at context words 11–27 (`CTX_*`, as the node's `ledger::program_state`). An EVM program
+is deployed with an empty public input, so the context starts at public word 8, after the call
+binding. `evm-core/src/block.rs` decodes it, and both paths use that one decoder: the interpreter
+directly, a translation through `evm-rt/evm_block.c` and the FFI `evm_block_context`.
+
+| opcode | version 2 | any other version |
+|---|---|---|
+| `NUMBER`, `TIMESTAMP`, `BASEFEE` | `ref_height`, the time in seconds, `basefee` | trap, as before |
+| `GASPRICE` | `basefee` (no tips) | trap |
+| `COINBASE` | 0 (fees go to a register entry with no EVM address) | trap |
+| `GASLIMIT` | 2^32 − 1 (the most a call's one `gas_limit` word carries) | trap |
+| `PREVRANDAO` | the beacon bytes read big-endian; **trap** unless word 19 is 1 | trap |
+| `CHAINID` | interpreter: the context's chain id; translation: its baked `--chain-id`, always | interpreter: trap; translation: the constant |
+| `ORIGIN` | `CALLER` | interpreter: trap; translation: `CALLER` |
+| `BLOCKHASH`, `SELFBALANCE`, `BLOBHASH`, `BLOBBASEFEE` | trap | trap |
+
+Each opcode that runs costs `G_BASE` (2), charged after the context check, so under a version-1
+context a run is what it was to the halt kind and the gas. The words are read **when an opcode
+runs**, never up front: a `Call` carries no context, and `READ_PUBLIC` past the segment can never
+be satisfied, so a `Call` that reaches one of these opcodes now has **no proof** (it used to prove
+a status-2 halt); one that reaches none is unchanged. For the same reason a translation keeps its
+baked `CHAINID`: reading the context would make every `Call` that runs `CHAINID` unprovable.
+
+**What moved.** `evm_core::Host` has a fourth method, `read_public` (the guest's `READ_PUBLIC`;
+research's `HostRef` answers 0, `HostPublic` serves a slice). `evm.bin` hc `7862f530…151eeb46` →
+`3869b014…8920720d`, program id `ae5f0b2b…216aea` → `0eff0627…4ce6ccc4`, 15 167 → 15 531 words;
+`evm-v1.bin` hc `6215d629…3b64bfcdcf` → `040c01c8…f41193454`, 15 111 → 15 474 words. The ERC-20
+`transfer` on `evm.bin` is 121 737 cycles (120 892 before; tier 18): the decoder is out of line
+and called from the dispatch's default arm, as any other placement reshaped the loop's inlining
+and cost 2 % to 10 %. Every `evm2rv` translation moved too (the shim's host gained the method and
+`ffi.rs` the entry point); the ERC-20's two pins come from CI's clang-23.1.1 job
+(`evm2rv/tests/parity.rs`).
+
+**The re-vendor into the fullnode.** The vendored `evm-core` (and every other `Host` impl there)
+needs `read_public`; the node's `invoke_segment` already appends the version-2 context, so nothing
+else in the segment moves. A chain admitting `evm.bin` by hc admits the new one at the chain-22
+cut. Tests: `research/tests/evm_interp.rs` and `emulated_guests.rs` (each opcode under version 2
+with and without the beacon, version 1, other versions, a `Call`), `evm2rv/tests/compat.rs` and
+`parity_block.rs` (both stages, as host libraries and as images on the emulator).
 
 **Re-vendor note: the EVM guest's public output binds the call, the log data and the gas**
 (ZKVM-103, ZKVM-104; no constraint-set change). The `EVM_OUT` preimage grew from 40 words to 82:

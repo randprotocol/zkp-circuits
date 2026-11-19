@@ -232,9 +232,21 @@ void evm_call(uint32_t op, u256 *a, uint64_t gas_after);
  * OutOfBounds (a zero length included), else G_COPY_WORD per word, the expansion and the bytes. */
 void evm_copy_returndata_buf(uint32_t dst, uint32_t src, uint32_t len);
 
+/* ---- block context (evm_block.c; fullnode #168) ----
+ *
+ * TIMESTAMP, NUMBER, BASEFEE, GASPRICE, PREVRANDAO, COINBASE and GASLIMIT. `evm_block_ctx(op, r)`
+ * writes what `op` pushes to `r`, or halts Trap(op) — under any context version but 2, and
+ * PREVRANDAO without a beacon value. The words come from the public segment an InvokeAt is
+ * proved over, through `ffi.rs`'s `evm_block_context` and the host's READ_PUBLIC: the decoding is
+ * the interpreter's own (`evm-core/src/block.rs`). Its 2 is static (the block head's). In a file
+ * of its own, linked only into a contract that uses one of these opcodes, as evm_cancun.c is.
+ * CHAINID is not here: a translation keeps its baked `--chain-id`. */
+void evm_block_ctx(uint32_t op, u256 *r);
+
 /* ---- the Rust side (`evm-core/src/ffi.rs`, feature `ffi`) ---- */
 uint32_t evm_sload(void *tree, void *host, const uint32_t *slot, uint32_t *out);
 uint32_t evm_sstore(void *tree, void *host, const uint32_t *slot, const uint32_t *value);
 void evm_keccak256(void *host, const uint8_t *ptr, uint32_t len, uint8_t *out);
+uint32_t evm_block_context(void *host, uint32_t op, uint32_t *out);
 
 #endif

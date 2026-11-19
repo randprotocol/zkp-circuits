@@ -25,4 +25,5 @@ int call_tests(void);
 int call_fuzz_tests(void);
 int precompile_fuzz_tests(void);
 int cancun_tests(void);
+int block_tests(void);
 #endif

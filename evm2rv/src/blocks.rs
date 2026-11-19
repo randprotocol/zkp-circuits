@@ -1,19 +1,28 @@
 //! Basic-block analysis: the interpreter's jumpdest rule, block splitting at every `JUMPDEST` and
 //! after every terminator, per-block static gas (the interpreter's own `static_gas` table byte
-//! for byte, except `ORIGIN`/`CHAINID`, which the interpreter traps on — see [`static_gas`]) and the stack bounds (`min_depth`/`max_growth`) a single comparison at
-//! the block head checks instead of a check per opcode.
+//! for byte, except `ORIGIN`/`CHAINID` and the block-context opcodes, which the interpreter charges
+//! inside their own arm — see [`static_gas`]) and the stack bounds (`min_depth`/`max_growth`) a
+//! single comparison at the block head checks instead of a check per opcode.
 //!
 //! **The trapping-opcode boundary** (binding ruling, amending the task brief). The interpreter
 //! halts `Halt::Trap(op)` on every opcode outside its subset, unconditionally and without
 //! touching the stack (`evm_core::interp::Interpreter::step`'s catch-all arm pops nothing before
 //! returning the halt). `evm2rv` deliberately keeps trapping on:
 //!
-//! - the eleven block-context opcodes ([`BLOCK_CTX_TRAPS`]) the interpreter has no public-segment
-//!   binding for yet — Cancun's `BLOBHASH` and `BLOBBASEFEE` among them — and
-//! - seven more of the cross-contract family ([`STORAGE_CREATE_TRAPS`]): `BALANCE`,
+//! - the four block-context opcodes no context word defines ([`BLOCK_CTX_TRAPS`]): `BLOCKHASH`,
+//!   `SELFBALANCE`, and Cancun's `BLOBHASH` and `BLOBBASEFEE` — and
+//! - seven of the cross-contract family ([`STORAGE_CREATE_TRAPS`]): `BALANCE`,
 //!   `EXTCODESIZE`, `EXTCODECOPY`, `EXTCODEHASH`, `CREATE`, `CREATE2`, `SELFDESTRUCT`.
 //!
-//! Together these eighteen ([`TRAP_TERM`]) become [`Term::TrapOp`] and end the block.
+//! Together these eleven ([`TRAP_TERM`]) become [`Term::TrapOp`] and end the block.
+//!
+//! The seven block-context opcodes a version-2 context defines ([`BLOCK_CTX_OPS`]: `GASPRICE`,
+//! `COINBASE`, `TIMESTAMP`, `NUMBER`, `PREVRANDAO`, `GASLIMIT`, `BASEFEE`; fullnode #168) are
+//! ordinary ops: each pushes one word (`evm_block_ctx`, the interpreter's own decoding through
+//! `ffi.rs`) or traps at run time under any other context version, as the interpreter does. Each
+//! costs `G_BASE` = 2, charged at the block head ([`static_gas`]); the interpreter charges its 2
+//! inside the arm, once the context has shown the opcode runs. A contract with none of them is
+//! split exactly as before.
 //!
 //! The other post-Shanghai opcodes are ordinary ops, as the interpreter implements them: `CLZ`
 //! (EIP-7939), `TLOAD`/`TSTORE` (EIP-1153) and `MCOPY` (EIP-5656). A Shanghai contract has none of
@@ -29,8 +38,10 @@
 //! Each costs Shanghai's `G_BASE` = 2 in the translation ([`static_gas`]).
 //!
 //! [`warnings`] reports every occurrence (in code order, immediates correctly skipped) of any
-//! opcode in [`WARN_SET`]: [`TRAP_TERM`]'s eighteen as a [`Warning::Trap`] (they always trap), and
-//! [`CALL_FAMILY`]'s four as a [`Warning::Call`] (they trap unless the target is a precompile).
+//! opcode in [`WARN_SET`]: [`TRAP_TERM`]'s eleven as a [`Warning::Trap`] (they always trap),
+//! [`BLOCK_CTX_OPS`]' seven as a [`Warning::BlockContext`] (they trap unless the call has a
+//! version-2 context), and [`CALL_FAMILY`]'s four as a [`Warning::Call`] (they trap unless the
+//! target is a precompile).
 //!
 //! **Code longer than [`MAX_CODE_BYTES`]** (EIP-170's cap) is a separate case from every opcode
 //! above: `Interpreter::new` refuses it outright (`pre_halt = Halt::OutOfBounds`) before a single
@@ -83,7 +94,7 @@ pub enum Term {
     Revert,
     /// The `0xfe` opcode — the interpreter's one distinguished halt outside `Trap`.
     Invalid,
-    /// One of [`TRAP_TERM`]'s eighteen opcodes: the interpreter halts on it unconditionally,
+    /// One of [`TRAP_TERM`]'s eleven opcodes: the interpreter halts on it unconditionally,
     /// before touching the stack, and so does the translation (`evm_halt(HALT_TRAP, op)`, Task
     /// 4). Also covers any opcode byte the interpreter does not implement at all and this crate
     /// has no other classification for (undefined bytes, …) — those trap
@@ -119,8 +130,12 @@ pub struct Block {
 /// without refusing to translate the contract.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Warning {
-    /// One of [`TRAP_TERM`]'s eighteen opcodes, present at `pc`: it always traps.
+    /// One of [`TRAP_TERM`]'s eleven opcodes, present at `pc`: it always traps.
     Trap { pc: usize, opcode: u8 },
+    /// One of [`BLOCK_CTX_OPS`]' seven, present at `pc`: it traps unless the call is proved over
+    /// a version-2 context (an `InvokeAt`, fullnode #168) — and `PREVRANDAO` also on a chain
+    /// without the beacon.
+    BlockContext { pc: usize, opcode: u8 },
     /// One of [`CALL_FAMILY`]'s four, present at `pc`: it traps unless its target is a
     /// precompile (addresses 1-9), which the runtime runs (Task 5).
     Call { pc: usize, opcode: u8 },
@@ -131,12 +146,19 @@ pub enum Warning {
     CodeTooLarge { len: usize },
 }
 
-/// The eleven block-context opcodes: no public-segment binding exists yet (plan's Global
-/// Constraints), so the translator traps on them exactly as the interpreter does. `BLOBHASH`
-/// (0x49) and `BLOBBASEFEE` (0x4a), Cancun's, are the last two: they trapped before as undefined
-/// bytes, the same `Term::TrapOp` and the same C, and are listed so [`warnings`] names them.
-pub const BLOCK_CTX_TRAPS: [u8; 11] =
-    [0x3a, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x47, 0x48, 0x49, 0x4a];
+/// The block-context opcodes a version-2 context defines (fullnode #168, `evm_core::block`):
+/// `GASPRICE`, `COINBASE`, `TIMESTAMP`, `NUMBER`, `PREVRANDAO`, `GASLIMIT`, `BASEFEE`. Ordinary
+/// ops, `(0, 1)` on the stack, `G_BASE` each; at run time each pushes its word or traps, as in the
+/// interpreter. `CHAINID` (0x46) is not one: a translation pushes its baked `--chain-id`.
+pub const BLOCK_CTX_OPS: [u8; 7] = [0x3a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x48];
+
+/// The block-context opcodes no context word defines, which the translator traps on exactly as
+/// the interpreter does: `BLOCKHASH` (no header hash is in the context), `SELFBALANCE` (a
+/// contract's balance is not block context, and there is no balance model), and Cancun's
+/// `BLOBHASH` (0x49) and `BLOBBASEFEE` (0x4a) — the chain has no blobs; they trapped before as
+/// undefined bytes, the same `Term::TrapOp` and the same C, and are listed so [`warnings`] names
+/// them.
+pub const BLOCK_CTX_TRAPS: [u8; 4] = [0x40, 0x47, 0x49, 0x4a];
 
 /// `BALANCE`, `EXTCODESIZE`, `EXTCODECOPY`, `EXTCODEHASH`, `CREATE`, `CREATE2`, `SELFDESTRUCT` —
 /// the rest of the cross-contract family that traps unconditionally, unlike [`CALL_FAMILY`],
@@ -153,24 +175,27 @@ pub const CALL_FAMILY: [u8; 4] = [0xf1, 0xf2, 0xf4, 0xfa];
 /// transient table at the top of `evm_entry`, so every call starts with none (EIP-1153).
 pub const TRANSIENT_OPS: [u8; 2] = [0x5c, 0x5d];
 
-/// The eighteen opcodes [`blocks`] turns into a [`Term::TrapOp`] block terminator:
+/// The eleven opcodes [`blocks`] turns into a [`Term::TrapOp`] block terminator:
 /// [`BLOCK_CTX_TRAPS`] followed by [`STORAGE_CREATE_TRAPS`].
-pub const TRAP_TERM: [u8; 18] = [
-    0x3a, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x47, 0x48, 0x49, 0x4a, // BLOCK_CTX_TRAPS
+pub const TRAP_TERM: [u8; 11] = [
+    0x40, 0x47, 0x49, 0x4a, // BLOCK_CTX_TRAPS
     0x31, 0x3b, 0x3c, 0x3f, 0xf0, 0xf5, 0xff, // STORAGE_CREATE_TRAPS
 ];
 
-/// The twenty-two opcodes [`warnings`] reports: [`TRAP_TERM`] plus [`CALL_FAMILY`].
+/// The twenty-two opcodes [`warnings`] reports: [`BLOCK_CTX_OPS`], [`TRAP_TERM`] and
+/// [`CALL_FAMILY`].
 pub const WARN_SET: [u8; 22] = [
-    0x3a, 0x40, 0x41, 0x42, 0x43, 0x44, 0x45, 0x47, 0x48, 0x49, 0x4a, // BLOCK_CTX_TRAPS
+    0x3a, 0x41, 0x42, 0x43, 0x44, 0x45, 0x48, // BLOCK_CTX_OPS
+    0x40, 0x47, 0x49, 0x4a, // BLOCK_CTX_TRAPS
     0x31, 0x3b, 0x3c, 0x3f, 0xf0, 0xf5, 0xff, // STORAGE_CREATE_TRAPS
     0xf1, 0xf2, 0xf4, 0xfa, // CALL_FAMILY
 ];
 
 /// The Shanghai static gas of `op` in the translation: `evm_core::interp::static_gas`'s table —
-/// same match, same arms, same constants — plus `ORIGIN` (0x32) and `CHAINID` (0x46) at
-/// Shanghai's `G_BASE` = 2 (Task 4 fix round 1, a controller ruling: the interpreter traps on both,
-/// so it has no gas for them, and the translation implements them). `tests/blocks.rs`'s
+/// same match, same arms, same constants — plus `ORIGIN` (0x32), `CHAINID` (0x46) and
+/// [`BLOCK_CTX_OPS`] at Shanghai's `G_BASE` = 2 (Task 4 fix round 1, a controller ruling: the
+/// interpreter charges those inside their own arm — after the context check, so that a version-1
+/// run traps before anything is charged — and the translation at the block head). `tests/blocks.rs`'s
 /// `static_gas_matches_interpreter_for_every_opcode_byte` asserts the two tables agree on every
 /// other byte, so drift in either fails CI rather than double- or under-charging a translated
 /// contract. [`blocks`] uses this one function for both `Block::static_gas` and `Op::gas_after`.
@@ -189,8 +214,9 @@ pub const fn static_gas(op: u8) -> u64 {
     const G_WARM_STORAGE_READ: u64 = 100;
     match op {
         0x5b => G_JUMPDEST,
-        // ORIGIN and CHAINID: G_BASE in the translation only (the interpreter traps on both).
-        0x32 | 0x46 => G_BASE,
+        // ORIGIN, CHAINID and the block-context opcodes: G_BASE here, at the block head (the
+        // interpreter charges the same 2 inside each one's arm).
+        0x32 | 0x46 | 0x3a | 0x41..=0x45 | 0x48 => G_BASE,
         // base
         0x30 | 0x33 | 0x34 | 0x36 | 0x38 | 0x3d | 0x50 | 0x58 | 0x59 | 0x5a | 0x5f => G_BASE,
         // verylow: ADD/SUB, every comparison and bitwise opcode, CALLDATALOAD, MLOAD/MSTORE/
@@ -272,7 +298,7 @@ enum Classify {
     Return,
     Revert,
     Invalid,
-    /// [`TRAP_TERM`]'s eighteen, or any opcode byte this crate does not otherwise classify — both
+    /// [`TRAP_TERM`]'s eleven, or any opcode byte this crate does not otherwise classify — both
     /// become [`Term::TrapOp`], matching the interpreter's unconditional, stack-untouched halt.
     Trap,
 }
@@ -292,6 +318,9 @@ fn classify(opcode: u8) -> Classify {
         0x30 | 0x32 | 0x33 | 0x34 | 0x35 | 0x36 | 0x37 | 0x38 | 0x39 | 0x3d | 0x3e | 0x46 => {
             Classify::Ordinary
         }
+        // the block-context opcodes a version-2 context defines: they push a word or trap at run
+        // time (`evm_block_ctx`), so the block continues past them
+        0x3a | 0x41..=0x45 | 0x48 => Classify::Ordinary,
         // stack, memory, storage, PC/MSIZE/GAS/JUMPDEST (0x56/0x57 already matched above),
         // TLOAD/TSTORE, MCOPY
         0x50..=0x55 | 0x58..=0x5f => Classify::Ordinary,
@@ -333,7 +362,10 @@ pub fn stack_effect(op: u8) -> (usize, i32) {
         0x39 => (3, -3),                              // CODECOPY
         0x3d => (0, 1),                               // RETURNDATASIZE
         0x3e => (3, -3),                              // RETURNDATACOPY
+        0x3a => (0, 1),                               // GASPRICE
+        0x41..=0x45 => (0, 1),                        // COINBASE..GASLIMIT
         0x46 => (0, 1),                               // CHAINID
+        0x48 => (0, 1),                               // BASEFEE
         0x50 => (1, -1),                              // POP
         0x51 => (1, 0),                               // MLOAD
         0x52 => (2, -2),                              // MSTORE
@@ -390,7 +422,7 @@ pub fn stack_bounds(ops: &[Op]) -> (usize, usize) {
 }
 
 /// Split `code` into basic blocks at every `JUMPDEST` and after every terminator (`JUMP`,
-/// `JUMPI`, `STOP`, `RETURN`, `REVERT`, `INVALID`, or one of [`TRAP_TERM`]'s eighteen opcodes, or
+/// `JUMPI`, `STOP`, `RETURN`, `REVERT`, `INVALID`, or one of [`TRAP_TERM`]'s eleven opcodes, or
 /// any other opcode byte this crate does not implement). Falling off the end of the code is
 /// `STOP`, as in the interpreter.
 ///
@@ -537,6 +569,11 @@ pub fn warnings(code: &[u8]) -> Vec<Warning> {
         let (op, next_pc) = decode(code, pc);
         if CALL_FAMILY.contains(&op.opcode) {
             out.push(Warning::Call {
+                pc: op.pc,
+                opcode: op.opcode,
+            });
+        } else if BLOCK_CTX_OPS.contains(&op.opcode) {
+            out.push(Warning::BlockContext {
                 pc: op.pc,
                 opcode: op.opcode,
             });

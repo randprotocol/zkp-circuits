@@ -12,7 +12,7 @@ What the zkVM's EVM guest runs, opcode by opcode and precompile by precompile, a
 **Today the guest is a single-contract EVM with a documented subset. It is not mainnet-equivalent, and its gas is not mainnet gas.** A contract author should assume nothing beyond the tables below.
 
 - **One contract per proof.** A proof is one call into one contract's code against that contract's storage. There is no second account: a call to another contract, `CREATE`, `CREATE2`, `SELFDESTRUCT`, `BALANCE` and the `EXTCODE*` opcodes trap. So a router, a proxy, or a token calling a pool does not run.
-- **A subset.** The opcodes of Shanghai that one contract needs, plus `MCOPY`, `TLOAD`, `TSTORE` (Cancun) and `CLZ` (Osaka). No block context (`TIMESTAMP`, `NUMBER`, …). The precompiles stop at Shanghai's nine, and only in a translation.
+- **A subset.** The opcodes of Shanghai that one contract needs, plus `MCOPY`, `TLOAD`, `TSTORE` (Cancun) and `CLZ` (Osaka). The block context (`TIMESTAMP`, `NUMBER`, `PREVRANDAO`, …) only in a call proved over a version-2 context (an `InvokeAt`; the block-context section). The precompiles stop at Shanghai's nine, and only in a translation.
 - **Gas is a counter, not mainnet gas.** Most opcodes cost what they cost on mainnet. Storage does not: there is no warm/cold access list, no refund and no 2 300-gas check (the `SLOAD` and `SSTORE` rows). `gas_used` counts execution only: nothing is charged before the first opcode (no 21 000 intrinsic gas, no calldata gas). Gas parity with Ethereum is not a goal of the current design.
 - **Fixed caps.** Memory, calldata, return data, logs, transient keys and storage witnesses each have a fixed size (the caps table). Exceeding one is the exceptional halt `OutOfBounds`, not out-of-gas.
 
@@ -27,7 +27,16 @@ A contract reaches the zkVM one of two ways, and the tables have a column for ea
 
 Every run ends with a status: 1 success (`STOP`, `RETURN`), 0 revert, 2 an exceptional halt. A **trap** is the exceptional halt `Trap(op)`: status 2, the whole gas limit consumed, no state change, no logs. The proof is still produced; it says the call was invalid. `evm2rv check <bytecode>` lists the opcodes in a contract that trap, before anything is built or proved.
 
-Of the 256 opcode bytes: 124 run on both paths, 5 run for some operands only, 2 run in a translation and trap in the interpreter, 18 trap on both, 1 is `INVALID`, and 106 are undefined. 2 have gas that differs from mainnet's.
+Of the 256 opcode bytes: 124 run on both paths, 14 run for some operands or under some contexts only, 0 run in a translation and trap in the interpreter, 11 trap on both, 1 is `INVALID`, and 106 are undefined. 2 have gas that differs from mainnet's.
+
+## Block context
+
+A call is proved before it is included, so no block fact can be a private input: a prover could supply any. A transaction of the form `InvokeAt` names a recent closed block, the reference block, and the validator puts that block's facts into the public segment the proof is checked against: context version 2 (fullnode `docs/evm-block-context.md`). The opcodes read them from public word 8 on (an EVM program is deployed with an empty public input, and the eight call-binding words come first), and only when one of them runs.
+
+- Under a **version-2 context** `NUMBER`, `TIMESTAMP`, `BASEFEE`, `GASPRICE`, `COINBASE`, `GASLIMIT` and `PREVRANDAO` push the words the rows below give, on both paths, and the interpreter's `CHAINID` and `ORIGIN` run too.
+- Under a **version-1 context** (an ordinary `Invoke`) each of them traps, exactly as before the block context existed.
+- A **`Call`** carries no context. A run that reaches one of these opcodes reads past the public segment, which no proof can show: there is no proof of it (it used to prove a status-2 halt). A run that reaches none is unchanged.
+- `TIMESTAMP` is a recent block's time, not "now": a deadline check passes for up to the reference window after the deadline. `PREVRANDAO` is at Ethereum's trust level and the prover chooses the reference block, so a contract must pin the block itself (fullnode `docs/evm-block-context.md` §11.4).
 
 ## Opcodes
 
@@ -68,7 +77,7 @@ The gas column is the whole rule; "memory expansion" is `3w + w²/512` for `w` w
 | `0x21`–`0x2f` | — | undefined | undefined | — |  |
 | `0x30` | `ADDRESS` | runs | runs | same: 2 |  |
 | `0x31` | `BALANCE` | **traps** | **traps** | — | one contract per proof: there is no account state beyond this contract's storage |
-| `0x32` | `ORIGIN` | **traps** | runs | same: 2 | a translation pushes CALLER (one call, no relayer); the interpreter traps |
+| `0x32` | `ORIGIN` | **runs if** (note) | runs | same: 2 | CALLER (one call, no relayer): always in a translation; in the interpreter under a version-2 context (an InvokeAt), and it traps under any other |
 | `0x33` | `CALLER` | runs | runs | same: 2 |  |
 | `0x34` | `CALLVALUE` | runs | runs | same: 2 |  |
 | `0x35` | `CALLDATALOAD` | runs | runs | same: 3 |  |
@@ -76,23 +85,23 @@ The gas column is the whole rule; "memory expansion" is `3w + w²/512` for `w` w
 | `0x37` | `CALLDATACOPY` | runs | runs | same: 3 + 3 per word + memory expansion |  |
 | `0x38` | `CODESIZE` | runs | runs | same: 2 |  |
 | `0x39` | `CODECOPY` | runs | runs | same: 3 + 3 per word + memory expansion |  |
-| `0x3a` | `GASPRICE` | **traps** | **traps** | — | transaction context: no public value binds the gas price to the proof |
+| `0x3a` | `GASPRICE` | **runs if** (note) | **runs if** (note) | same: 2 | under a version-2 context (an InvokeAt): BASEFEE's value, as there are no tips; traps under any other |
 | `0x3b` | `EXTCODESIZE` | **traps** | **traps** | — | one contract per proof: there is no account state beyond this contract's storage |
 | `0x3c` | `EXTCODECOPY` | **traps** | **traps** | — | one contract per proof: there is no account state beyond this contract's storage |
 | `0x3d` | `RETURNDATASIZE` | runs | runs | same: 2 | 0 in the interpreter (no call is ever made); in a translation, the length of the last precompile call's output |
 | `0x3e` | `RETURNDATACOPY` | **runs if** (note) | **runs if** (note) | same: 3 + 3 per word + memory expansion | a zero length always runs. A non-zero length traps in the interpreter, and in a translation until a precompile call has been made; after one it copies from that call's output (reading past its end halts OutOfBounds) |
 | `0x3f` | `EXTCODEHASH` | **traps** | **traps** | — | one contract per proof: there is no account state beyond this contract's storage |
-| `0x40` | `BLOCKHASH` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x41` | `COINBASE` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x42` | `TIMESTAMP` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x43` | `NUMBER` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x44` | `PREVRANDAO` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x45` | `GASLIMIT` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x46` | `CHAINID` | **traps** | runs | same: 2 | a translation pushes the constant given as --chain-id (required at translation, bound by the image hash); the interpreter traps |
+| `0x40` | `BLOCKHASH` | **traps** | **traps** | — | no header hash is in the block context |
+| `0x41` | `COINBASE` | **runs if** (note) | **runs if** (note) | same: 2 | under a version-2 context (an InvokeAt): 0, as fees go to the proposer's register entry, which has no EVM address; traps under any other |
+| `0x42` | `TIMESTAMP` | **runs if** (note) | **runs if** (note) | same: 2 | under a version-2 context (an InvokeAt): the reference block's time in seconds — a recent block's, up to the reference window behind the including block, not "now"; traps under any other |
+| `0x43` | `NUMBER` | **runs if** (note) | **runs if** (note) | same: 2 | under a version-2 context (an InvokeAt): the reference block's height, which the prover chose inside the window; traps under any other |
+| `0x44` | `PREVRANDAO` | **runs if** (note) | **runs if** (note) | same: 2 | under a version-2 context (an InvokeAt) on a chain with the beacon: the beacon value after the reference block's reveal, its 32 bytes read big-endian. Traps without the beacon and under any other context. The prover picks the reference block, so a contract must pin it (store NUMBER + k, k >= 2, then require NUMBER == target before reading); fullnode docs/evm-block-context.md §11.4 |
+| `0x45` | `GASLIMIT` | **runs if** (note) | **runs if** (note) | same: 2 | under a version-2 context (an InvokeAt): 2^32 − 1, the most gas one call's input can carry; traps under any other |
+| `0x46` | `CHAINID` | **runs if** (note) | runs | same: 2 | a translation pushes the constant given as --chain-id (required at translation, bound by the image hash) on every call; the interpreter pushes the context's chain id under a version-2 context (an InvokeAt) and traps under any other |
 | `0x47` | `SELFBALANCE` | **traps** | **traps** | — | there is no balance model: the contract's storage is the only state |
-| `0x48` | `BASEFEE` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x49` | `BLOBHASH` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
-| `0x4a` | `BLOBBASEFEE` | **traps** | **traps** | — | block context: no public value binds a block fact to the proof, so a prover could supply any |
+| `0x48` | `BASEFEE` | **runs if** (note) | **runs if** (note) | same: 2 | under a version-2 context (an InvokeAt): the RAND base units per unit of Rand gas the reference block's calls paid (not wei per EVM gas; none of it is burned by this rule); traps under any other |
+| `0x49` | `BLOBHASH` | **traps** | **traps** | — | the chain has no blobs |
+| `0x4a` | `BLOBBASEFEE` | **traps** | **traps** | — | the chain has no blobs |
 | `0x4b`–`0x4f` | — | undefined | undefined | — |  |
 | `0x50` | `POP` | runs | runs | same: 2 |  |
 | `0x51` | `MLOAD` | runs | runs | same: 3 + memory expansion |  |
@@ -173,7 +182,7 @@ Each is a fixed-size array in the guest. Exceeding one halts `OutOfBounds` (stat
 A translation must give the interpreter's status, public output and `gas_used` for the same call. Three differences are accepted (evm2rv/README.md, "The observable contract"):
 
 1. **The halt kind.** A translation charges a basic block's static gas once, at the block's head. A block that would halt midway for another reason can halt `OutOfGas` at its head instead, or the reverse. Both are status 2 with `gas_used` equal to the limit.
-2. **A translation runs a little more.** `CHAINID` (the `--chain-id` constant), `ORIGIN` (= `CALLER`) and calls to precompiles 1 to 9 run in a translation and trap in the interpreter. A call on too shallow a stack underflows at the block head where the interpreter traps; both are status 2.
+2. **A translation runs a little more.** `CHAINID` (the `--chain-id` constant), `ORIGIN` (= `CALLER`) and calls to precompiles 1 to 9 run in a translation and trap in the interpreter (`CHAINID` and `ORIGIN` run in the interpreter under a version-2 context, where its `CHAINID` is the context's chain id and a translation's is still the baked constant). A call on too shallow a stack underflows at the block head where the interpreter traps; both are status 2.
 3. **The code guard.** A translation refuses any code but the one it was translated from (status 2, `gas_used` 0); the interpreter runs whatever code it is given.
 
 ## Cycles

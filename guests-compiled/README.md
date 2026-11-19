@@ -2,21 +2,32 @@
 
 Built with the toolchain, never by hand — for example, after an `evm-core` change:
 
-    cd rand-guest && cargo run -- build ../guests-compiled/evm --out ../guests-compiled/bin/evm.bin --max-words 65535
+    cd rand-guest && cargo +1.98.1 run -- build ../guests-compiled/evm --out ../guests-compiled/bin/evm.bin --max-words 65535 --allow-panic
 
 That writes `bin/evm.bin` and `bin/evm.bin.sha256` together. `--max-words 65535` is needed for
 `evm` and `sbpf`: both interpreter guests are far over the chain's default 4096-word cap
 (`rand-guest/README.md`'s "The cap"), which is a genesis parameter on the v0.4 chain, not yet
-raised for either of them.
+raised for either of them. `--allow-panic` is needed for `evm`: `evm-core`'s bounds checks link
+`core`'s panic machinery, and without the flag `rand-guest build` writes the image and then
+rejects it (`rand-guest/tests/build.rs` builds it the same way).
 
 **`evm.bin` and `evm-v1.bin` are one source.** `guests-compiled/evm` and `guests-compiled/evm-v1`
 both include `evm/src/guest.rs`; the second builds `evm-core` with its `storage-v1` feature
 (storage layout 1, a depth-32 tree) and the first without (layout 2, depth 64). After an
 `evm-core` change both are rebuilt:
 
-    cd rand-guest && cargo run -- build ../guests-compiled/evm-v1 --out ../guests-compiled/bin/evm-v1.bin --max-words 65535
+    cd rand-guest && cargo +1.98.1 run -- build ../guests-compiled/evm-v1 --out ../guests-compiled/bin/evm-v1.bin --max-words 65535 --allow-panic
 
 `research/docs/04-guests.md`'s "Storage layouts and program versions" says what the two are for.
+
+**The block context (constraint set 11, fullnode #168).** Both interpreter images read the
+block-context opcodes' words (`NUMBER`, `TIMESTAMP`, `BASEFEE`, `GASPRICE`, `COINBASE`,
+`GASLIMIT`, `PREVRANDAO`, and `CHAINID` and `ORIGIN`) from the **public** segment, through
+`READ_PUBLIC` (`evm-core/src/block.rs`): an `InvokeAt`'s version-2 context, from public word 8 on.
+Under any other context version they trap as before, so an `Invoke` (version 1) runs as it did;
+a `Call` carries no context, and a run of one that reaches such an opcode has no proof. The
+images of this change are `evm.bin` 15 531 words, hc `3869b014…8920720d`, and `evm-v1.bin`
+15 474 words, hc `040c01c8…f41193454` (15 167 and 15 111 before).
 
 **`fib.bin` and `keccak256.bin` are never rebuilt over.** They are legacy flat pins (below) and
 `build` only writes the image container, so a rebuild into `bin/` would replace a file two repos

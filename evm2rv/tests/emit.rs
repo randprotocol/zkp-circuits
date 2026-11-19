@@ -11,7 +11,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use evm2rv::blocks::{Op, TRAP_TERM};
+use evm2rv::blocks::{Op, BLOCK_CTX_OPS, TRAP_TERM};
 use evm2rv::emit::{mnemonic, op_c, translate, EmitError, Options, Stage};
 use evm2rv::shim::{crate_name, files, C_FLAGS};
 use evm_core::interp::MAX_CODE_BYTES;
@@ -402,8 +402,8 @@ fn origin_and_chainid_are_charged_g_base() {
     assert_eq!(b.ops[0].gas_after, 2);
 }
 
-/// The eighteen `TRAP_TERM` opcodes (the eleven block-context ones among them) and any byte the
-/// interpreter does not implement halt `Trap(op)`.
+/// The eleven `TRAP_TERM` opcodes (the four block-context ones no context word defines among
+/// them) and any byte the interpreter does not implement halt `Trap(op)`.
 #[test]
 fn trapping_opcodes_halt_with_their_opcode() {
     for opcode in TRAP_TERM
@@ -882,9 +882,14 @@ fn the_shim_crate() {
         "\"evm_secp256k1.c\"",
         "\"evm_bn254.c\"",
         "\"evm_cancun.c\"",
+        "\"evm_block.c\"",
     ] {
         assert!(f.build_rs.contains(src), "{src}: {}", f.build_rs);
     }
+    // The block-context runtime only for a contract that calls it, and the guest's READ_PUBLIC
+    // behind the host (fullnode #168).
+    assert!(f.build_rs.contains("if contract.contains(\"evm_block_ctx(\") {"));
+    assert!(f.main_rs.contains("fn read_public(&mut self, idx: u32) -> u32 {"));
     assert!(f.build_rs.contains(".include(root.join(\"rand-guest\"))"));
     assert!(f.build_rs.contains("cargo:warning=evm2rv: clang {first}"));
     // rand-guest's clang pin, with its override, and no clang configuration file.
@@ -1053,4 +1058,30 @@ fn the_cli_reads_hex_by_extension_and_raw_bytes_otherwise() {
     assert!(ok && out.contains("5 code bytes"), "{out}");
     let (ok, out, _) = run("noext", &[0x00]);
     assert!(ok && out.contains("1 code bytes"), "{out}");
+}
+
+/// The seven block-context opcodes a version-2 context defines (fullnode #168) push through the
+/// runtime: `evm_block_ctx(op, &dst)`, which writes the word or halts `Trap(op)`. Stage one writes
+/// the slot above the top and moves `evm_sp`; stage two writes a fresh local. A contract with
+/// none of them never names `evm_block_ctx`, so its build links no `evm_block.c`.
+#[test]
+fn the_block_context_opcodes_call_the_runtime() {
+    for op in BLOCK_CTX_OPS {
+        assert_eq!(
+            c_of(op),
+            format!("evm_block_ctx({op:#04x}, &evm_stack[evm_sp]); evm_sp++;"),
+            "{op:#04x}"
+        );
+        // op; PUSH1 0; MSTORE; PUSH1 32; PUSH1 0; RETURN — the word returned.
+        let code = [op, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3];
+        for stage in [Stage::One, Stage::Two] {
+            let c = translate(&code, &Options { chain_id: None, stage }).unwrap().c;
+            assert_eq!(c.matches("evm_block_ctx(").count(), 1, "{op:#04x} {stage:?}: {c}");
+            assert!(c.contains(&format!("evm_block_ctx({op:#04x}, &")), "{op:#04x} {stage:?}");
+            // One block: the opcode does not end it.
+            assert!(!c.contains("EVM_HALT_TRAP"), "{op:#04x} {stage:?}: {c}");
+        }
+    }
+    let plain = translate(&[0x60, 0x01, 0x00], &one()).unwrap().c;
+    assert!(!plain.contains("evm_block_ctx("));
 }

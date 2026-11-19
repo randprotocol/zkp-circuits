@@ -159,6 +159,15 @@ pub fn build_shim(
     (image, hc)
 }
 
+/// The public segment every run here is given: an ordinary `Invoke`'s, `binding ‖ [1, 0 × 10]`
+/// (a zero binding, context version 1; `rand_zkvm::evm::v1_segment`). A contract that reaches a
+/// block-context opcode traps on it, as under the host oracle's `HostRef`; with no segment at all
+/// (a `Call`'s) such a run would have no proof (`ExecError::PublicIndex`), and one that reaches
+/// none reads no public word either way. `parity_block.rs` runs the other segments.
+pub fn v1_public() -> Vec<String> {
+    rand_zkvm::evm::v1_segment(&[0; 8]).iter().map(u32::to_string).collect()
+}
+
 /// `rand-guest run`'s stdout when the run went past the largest tier's cycle budget, else `None`.
 pub fn run_out_of_cycles(image: &Path, inputs: &[u32]) -> Option<String> {
     let o = scrubbed(rand_guest())
@@ -166,6 +175,8 @@ pub fn run_out_of_cycles(image: &Path, inputs: &[u32]) -> Option<String> {
         .arg(image)
         .arg("--input")
         .args(inputs.iter().map(u32::to_string))
+        .arg("--public")
+        .args(v1_public())
         .output()
         .unwrap();
     let s = String::from_utf8_lossy(&o.stdout).into_owned();
@@ -185,6 +196,8 @@ pub fn run_tier(image: &Path, inputs: &[u32]) -> ([u32; 8], usize, Option<u32>) 
         .arg(image)
         .arg("--input")
         .args(inputs.iter().map(u32::to_string))
+        .arg("--public")
+        .args(v1_public())
         .output()
         .unwrap();
     let s = String::from_utf8_lossy(&o.stdout).into_owned();

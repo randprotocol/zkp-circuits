@@ -142,7 +142,7 @@ call (address, caller, value, calldata, gas limit, context) and the gas used
 
 ### 5. The same eight words as the interpreter
 
-The interpreter guest (`evm.bin`, storage layout 2, program id `ae5f0b2b…`, hc `7862f530…` since constraint set 11, `fae9d774…` before), on the
+The interpreter guest (`evm.bin`, storage layout 2, program id `0eff0627…`, hc `3869b014…` since set 11's block context, `7862f530…` before it, `fae9d774…` before set 11), on the
 same input:
 
 ```
@@ -155,7 +155,7 @@ out[4] = 80492969
 out[5] = 1294998629
 out[6] = 476639945
 out[7] = 2694991971
-cycles 120892
+cycles 121737
 tier 18
 ```
 
@@ -182,9 +182,9 @@ the eight words are identical
 | | translated (stage two) | interpreter (`evm.bin`) |
 |---|---:|---:|
 | eight output words | identical | identical |
-| cycles | 59 946 | 120 892 |
+| cycles | 59 946 | 121 737 |
 | tier | 16 | 18 |
-| program words | 7 958 | 15 167 |
+| program words | 7 958 | 15 531 |
 
 `tests/parity.rs` runs this and seven more vectors under both stages, and also checks `gas_used`
 and the halt through a second build that reports them.
@@ -283,10 +283,11 @@ clean: nothing in this code traps in a translation
 ```
 
 `check` disassembles the code (push data skipped) and lists every opcode that always traps, traps
-for some operands (a call runs only to a precompile; `RETURNDATACOPY`), or runs in a translation
-but not in the interpreter (`CHAINID`, `ORIGIN`), with its offset and the table's reason. The exit
-status is 0 when nothing traps, 1 when something always traps (or the code is over the size cap),
-2 when the only findings trap for some operands. `--interpreter` gives the verdict for the
+for some operands (a call runs only to a precompile; `RETURNDATACOPY`) or outside a version-2
+context (the block-context opcodes, which run only in an `InvokeAt`), or runs in a translation but
+not always in the interpreter (`CHAINID`, `ORIGIN`), with its offset and the table's reason. The
+exit status is 0 when nothing traps, 1 when something always traps (or the code is over the size
+cap), 2 when the only findings are conditional. `--interpreter` gives the verdict for the
 interpreter instead of a translation. It is a scan, not a reachability analysis: an opcode in dead
 code, or data that reads as one, is listed like any other.
 
@@ -298,10 +299,12 @@ kind is not public, and it may differ. Three divergences are accepted:
 1. **The halt kind.** Static gas is charged once at the head of each block. A block that would
    halt midway for another reason can halt `OutOfGas` at its head instead, or the reverse. Both are
    status 2 with `gas_used` equal to the limit, so nothing observable changes.
-2. **The translation runs a little more than the interpreter.** The interpreter traps on
-   `CHAINID`, `ORIGIN` and every call. The translation implements `CHAINID` and `ORIGIN`, and runs
-   calls to the precompiles (addresses 1 to 9). A call on too shallow a stack underflows at the
-   block head where the interpreter traps; both are status 2.
+2. **The translation runs a little more than the interpreter.** The interpreter traps on every
+   call, and on `CHAINID` and `ORIGIN` outside a version-2 context. The translation implements
+   `CHAINID` (the baked constant, under every context; the interpreter's, under version 2, is the
+   context's chain id) and `ORIGIN`, and runs calls to the precompiles (addresses 1 to 9). A call
+   on too shallow a stack underflows at the block head where the interpreter traps; both are
+   status 2.
 3. **The code guard.** Given code other than its source, the interpreter would run it. The
    translation refuses it (status 2, `gas_used` 0).
 
@@ -310,15 +313,38 @@ kind is not public, and it may differ. Three divergences are accepted:
 | opcode | translation |
 |---|---|
 | `ADDRESS`, `CALLER`, `CALLVALUE`, `CALLDATASIZE`, `CODESIZE` | from the input vector, as the interpreter reads them |
-| `CHAINID` | the `--chain-id` constant, baked in, so `hc` binds it; 2 gas |
+| `CHAINID` | the `--chain-id` constant, baked in, so `hc` binds it, under every context; 2 gas |
 | `ORIGIN` | `CALLER` (one call, no relayer); 2 gas |
-| `GASPRICE`, `COINBASE`, `TIMESTAMP`, `NUMBER`, `PREVRANDAO`, `GASLIMIT`, `SELFBALANCE`, `BASEFEE`, `BLOCKHASH`, `BLOBHASH`, `BLOBBASEFEE` | trap (status 2), as in the interpreter |
+| `NUMBER`, `TIMESTAMP`, `BASEFEE`, `GASPRICE`, `COINBASE`, `GASLIMIT`, `PREVRANDAO` | under a version-2 context (an `InvokeAt`), the word below, read from the public segment when the opcode runs; trap (status 2) under any other, as in the interpreter; 2 gas at the block head |
+| `SELFBALANCE`, `BLOCKHASH`, `BLOBHASH`, `BLOBBASEFEE` | trap (status 2), as in the interpreter |
 
-The eleven block-context opcodes trap until there is a design for binding them. A private input
-word is bound only to the salted `H_IN`, which a verifier cannot open, so it could not carry a
-block fact a prover could not forge. Binding them needs a chain decision on which block a proof is
-checked against. Until then, contracts that read the time or the block number (a permit deadline,
-for example) trap.
+### Block context (constraint set 11, fullnode #168)
+
+A private input word is bound only to the salted `H_IN`, which a verifier cannot open, so it
+cannot carry a block fact: a prover could supply any. An `InvokeAt` transaction names a recent
+closed block, the reference block, and the validator puts that block's facts into the public
+segment the proof is checked against: context version 2 (fullnode `docs/evm-block-context.md`).
+An EVM program is deployed with an empty public input, so the context starts at public word 8,
+after the eight call-binding words. Both paths decode it with the same code, `evm_core::block`: the
+interpreter directly, a translation through `evm-rt/evm_block.c` and `ffi::evm_block_context`,
+linked only into a contract that uses one of these opcodes (one that uses none builds as before).
+
+| opcode | under a version-2 context |
+|---|---|
+| `NUMBER` | the reference block's height (context words 11–12) |
+| `TIMESTAMP` | its time in seconds (13–14): a recent block's, not "now", so a deadline check passes for up to the reference window after the deadline |
+| `BASEFEE`, `GASPRICE` | the base units of RAND per unit of Rand gas the block's calls paid (17–18); no tips, so the two are equal |
+| `PREVRANDAO` | the beacon value after the block's reveal, its 32 bytes (20–27) read big-endian; **traps** unless word 19 is 1 (a chain without the beacon). The prover chooses the reference block, so a contract must pin it (spec §11.4) |
+| `COINBASE` | 0: fees go to the proposer's register entry, which has no EVM address |
+| `GASLIMIT` | 2^32 − 1, the most gas one call's input can carry |
+| `CHAINID` (interpreter only) | the genesis chain id (15–16) |
+| `ORIGIN` (interpreter only) | `CALLER` |
+
+Under any other context version — an ordinary `Invoke` is version 1 — each traps exactly as it did
+before, with nothing charged first, so a version-1 run is unchanged to the halt kind. A `Call`'s
+segment carries no context at all: the words are read only when one of these opcodes runs, so a
+run that reaches none is unchanged, and a run that reaches one reads past the segment, which no
+proof can show — there is no proof of it (it used to prove a status-2 halt).
 
 ## Calls and precompiles
 
@@ -354,17 +380,19 @@ backlog: ecrecover, bn256 mul, the pairing, modexp past small operands, and blak
 Measured with `rand-guest run` on the vectors `tests/parity.rs` and `tests/precompiles.rs` pin,
 with the code guard in, under storage layout 2 (a depth-64 storage tree), with the call, the log
 data and the gas in the public output, and after ZKVM-117's harness savings (below). Tier in
-parentheses.
+parentheses. The interpreter column is the block-context image (set 11, fullnode #168); the
+translated columns are clang 23.1.1's from before it (on 23.1.4, the only clang the change was
+measured with, each is 3 cycles more, which may be the compiler rather than the change).
 
 | vector | interpreter | stage one | stage two |
 |---|---:|---:|---:|
-| `transfer(BOB, 250)` | 120 892 (18) | 73 922 (18) | **59 946** (16) |
-| `approve(BOB, 5)` | 83 908 (18) | 46 766 (16) | **38 624** (16) |
-| `transferFrom(ALICE, BOB, 100)` | 161 920 (18) | 106 241 (18) | **84 991** (18) |
-| transfer of 5 000 of 1 000 (reverts) | 86 822 (18) | 45 331 (16) | 37 905 (16) |
-| transfer, out of gas at 100 | 49 073 (16) | 23 073 (16) | 22 624 (16) |
-| transfer, out of gas at 20 000 | 100 297 (18) | 58 633 (16) | 48 245 (16) |
-| transfer, out of gas at 29 955 | 118 547 (18) | 71 307 (18) | 57 792 (16) |
+| `transfer(BOB, 250)` | 121 737 (18) | 73 922 (18) | **59 946** (16) |
+| `approve(BOB, 5)` | 84 407 (18) | 46 766 (16) | **38 624** (16) |
+| `transferFrom(ALICE, BOB, 100)` | 163 014 (18) | 106 241 (18) | **84 991** (18) |
+| transfer of 5 000 of 1 000 (reverts) | 87 409 (18) | 45 331 (16) | 37 905 (16) |
+| transfer, out of gas at 100 | 49 188 (16) | 23 073 (16) | 22 624 (16) |
+| transfer, out of gas at 20 000 | 100 939 (18) | 58 633 (16) | 48 245 (16) |
+| transfer, out of gas at 29 955 | 119 386 (18) | 71 307 (18) | 57 792 (16) |
 | sha256 + ecrecover, underfunded | traps | 17 522 (16) | 16 458 (16) |
 
 The transfer's row over time (interpreter / stage one / stage two):
@@ -375,6 +403,7 @@ The transfer's row over time (interpreter / stage one / stage two):
 | the call, log data and gas in the output (ZKVM-103/104) | 128 872 / 84 271 / 70 295 | 18 |
 | the depth-64 storage tree (ZKVM-105) | 154 517 / 109 947 / 95 971 | 18 |
 | the harness savings (ZKVM-117) | 120 892 / 73 922 / **59 946** | **16** |
+| the block context (set 11, fullnode #168; interpreter only) | 121 737 / — / — | 16 |
 
 > **Constraint set 11 moved every `hc`** (ZKVM-107: the Poseidon2 round constants are the Grain
 > table, and `hc` is a Poseidon2 digest of the image's words). The interpreter rows below are
@@ -384,8 +413,8 @@ The transfer's row over time (interpreter / stage one / stage two):
 
 | program | words | hc |
 |---|---:|---|
-| interpreter (`evm.bin`, layout 2) | 15 167 | `7862f530…151eeb46` (constraint set 11's Grain constants; `fae9d774…1f09bc0c` before) |
-| interpreter (`evm-v1.bin`, layout 1) | 15 111 | `6215d629…3b64bfcdcf` (`7375f67a…794dca16` before set 11) |
+| interpreter (`evm.bin`, layout 2) | 15 531 | `3869b014…8920720d` (set 11's block context; `7862f530…151eeb46`, 15 167 words, with set 11's Grain constants before it; `fae9d774…1f09bc0c` before set 11) |
+| interpreter (`evm-v1.bin`, layout 1) | 15 474 | `040c01c8…f41193454` (the block context; `6215d629…3b64bfcdcf`, 15 111 words, before it; `7375f67a…794dca16` before set 11) |
 | ERC-20, stage one | 12 076 | `434cc062420fdaddef05777945aa0dd7711d8900675aec7d83b4a3034ba965f6` |
 | ERC-20, stage two | 7 958 | `72ce1c04962742271f928b37c6e1dffccffb2a1ec61f5fcc2d379db7f96f77b8` |
 | sha256 + ecrecover contract, stage one | 12 451 | `d358b7db…d9676203` |

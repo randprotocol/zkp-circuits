@@ -129,8 +129,30 @@ pub const fn memory_cost(words: u64) -> u64 {
 }
 
 const MEM: &str = "memory expansion";
-const NO_BLOCK_CTX: &str =
-    "block context: no public value binds a block fact to the proof, so a prover could supply any";
+// The block-context rows (fullnode #168, `evm_core::block`): each runs under a version-2 context
+// (an `InvokeAt`, whose public segment carries the reference block's words) and traps under any
+// other, on both paths.
+const CTX_GASPRICE: &str = "under a version-2 context (an InvokeAt): BASEFEE's value, as there \
+     are no tips; traps under any other";
+const CTX_COINBASE: &str = "under a version-2 context (an InvokeAt): 0, as fees go to the \
+     proposer's register entry, which has no EVM address; traps under any other";
+const CTX_TIMESTAMP: &str = "under a version-2 context (an InvokeAt): the reference block's time \
+     in seconds — a recent block's, up to the reference window behind the including block, not \
+     \"now\"; traps under any other";
+const CTX_NUMBER: &str = "under a version-2 context (an InvokeAt): the reference block's height, \
+     which the prover chose inside the window; traps under any other";
+const CTX_PREVRANDAO: &str = "under a version-2 context (an InvokeAt) on a chain with the beacon: \
+     the beacon value after the reference block's reveal, its 32 bytes read big-endian. Traps \
+     without the beacon and under any other context. The prover picks the reference block, so a \
+     contract must pin it (store NUMBER + k, k >= 2, then require NUMBER == target before \
+     reading); fullnode docs/evm-block-context.md §11.4";
+const CTX_GASLIMIT: &str = "under a version-2 context (an InvokeAt): 2^32 − 1, the most gas one \
+     call's input can carry; traps under any other";
+const CTX_BASEFEE: &str = "under a version-2 context (an InvokeAt): the RAND base units per unit \
+     of Rand gas the reference block's calls paid (not wei per EVM gas; none of it is burned by \
+     this rule); traps under any other";
+const NO_BLOCKHASH: &str = "no header hash is in the block context";
+const NO_BLOBS: &str = "the chain has no blobs";
 const NO_ACCOUNTS: &str =
     "one contract per proof: there is no account state beyond this contract's storage";
 const NO_CREATE: &str = "one contract per proof: there is no second code or storage to create";
@@ -162,9 +184,10 @@ pub fn opcode(byte: u8) -> Opcode {
         ),
         0x30 | 0x33 | 0x34 | 0x35 | 0x36 | 0x38 => (Runs, Runs, "", Gas::Same, String::new()),
         0x32 => (
-            Traps,
+            RunsIf,
             Runs,
-            "a translation pushes CALLER (one call, no relayer); the interpreter traps",
+            "CALLER (one call, no relayer): always in a translation; in the interpreter under a \
+             version-2 context (an InvokeAt), and it traps under any other",
             Gas::Same,
             String::new(),
         ),
@@ -193,20 +216,23 @@ pub fn opcode(byte: u8) -> Opcode {
             format!("{s} + {COPY_PER_WORD} per word + {MEM}"),
         ),
         0x46 => (
-            Traps,
+            RunsIf,
             Runs,
             "a translation pushes the constant given as --chain-id (required at translation, \
-             bound by the image hash); the interpreter traps",
+             bound by the image hash) on every call; the interpreter pushes the context's chain \
+             id under a version-2 context (an InvokeAt) and traps under any other",
             Gas::Same,
             String::new(),
         ),
-        0x3a => (
-            Traps,
-            Traps,
-            "transaction context: no public value binds the gas price to the proof",
-            Gas::None,
-            String::new(),
-        ),
+        0x3a => (RunsIf, RunsIf, CTX_GASPRICE, Gas::Same, String::new()),
+        0x41 => (RunsIf, RunsIf, CTX_COINBASE, Gas::Same, String::new()),
+        0x42 => (RunsIf, RunsIf, CTX_TIMESTAMP, Gas::Same, String::new()),
+        0x43 => (RunsIf, RunsIf, CTX_NUMBER, Gas::Same, String::new()),
+        0x44 => (RunsIf, RunsIf, CTX_PREVRANDAO, Gas::Same, String::new()),
+        0x45 => (RunsIf, RunsIf, CTX_GASLIMIT, Gas::Same, String::new()),
+        0x48 => (RunsIf, RunsIf, CTX_BASEFEE, Gas::Same, String::new()),
+        0x40 => (Traps, Traps, NO_BLOCKHASH, Gas::None, String::new()),
+        0x49 | 0x4a => (Traps, Traps, NO_BLOBS, Gas::None, String::new()),
         0x47 => (
             Traps,
             Traps,
@@ -214,7 +240,6 @@ pub fn opcode(byte: u8) -> Opcode {
             Gas::None,
             String::new(),
         ),
-        0x40..=0x45 | 0x48..=0x4a => (Traps, Traps, NO_BLOCK_CTX, Gas::None, String::new()),
         0x31 | 0x3b | 0x3c | 0x3f => (Traps, Traps, NO_ACCOUNTS, Gas::None, String::new()),
         0x50 | 0x56..=0x5b | 0x5f..=0x9f => (Runs, Runs, "", Gas::Same, String::new()),
         0x51..=0x53 => (Runs, Runs, "", Gas::Same, format!("{s} + {MEM}")),
@@ -506,9 +531,11 @@ pub const CAPS: [Cap; 8] = [
 /// How serious a [`Finding`] is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Severity {
-    /// The interpreter traps here and a translation runs it (`CHAINID`, `ORIGIN`).
+    /// A translation runs it and the interpreter traps here, always or outside a version-2
+    /// context (`CHAINID`, `ORIGIN`).
     InterpreterOnly,
-    /// It traps for some operands (the call family, `RETURNDATACOPY`).
+    /// It traps for some operands (the call family, `RETURNDATACOPY`) or outside a version-2
+    /// context (the block-context opcodes).
     MayTrap,
     /// It always traps, on both paths.
     Traps,
@@ -579,7 +606,7 @@ pub fn check(code: &[u8]) -> Report {
         let severity = match (row.interp, row.xlat) {
             (Behaviour::Traps, Behaviour::Traps) => Some(Severity::Traps),
             (_, Behaviour::RunsIf) => Some(Severity::MayTrap),
-            (Behaviour::Traps, Behaviour::Runs) => Some(Severity::InterpreterOnly),
+            (Behaviour::Traps | Behaviour::RunsIf, Behaviour::Runs) => Some(Severity::InterpreterOnly),
             _ => None,
         };
         if let Some(severity) = severity {
@@ -731,8 +758,10 @@ pub fn markdown() -> String {
          `CREATE2`, `SELFDESTRUCT`, `BALANCE` and the `EXTCODE*` opcodes trap. So a router, a \
          proxy, or a token calling a pool does not run.\n\
          - **A subset.** The opcodes of Shanghai that one contract needs, plus `MCOPY`, `TLOAD`, \
-         `TSTORE` (Cancun) and `CLZ` (Osaka). No block context (`TIMESTAMP`, `NUMBER`, …). The \
-         precompiles stop at Shanghai's nine, and only in a translation.\n\
+         `TSTORE` (Cancun) and `CLZ` (Osaka). The block context (`TIMESTAMP`, `NUMBER`, \
+         `PREVRANDAO`, …) only in a call proved over a version-2 context (an `InvokeAt`; the \
+         block-context section). The precompiles stop at Shanghai's nine, and only in a \
+         translation.\n\
          - **Gas is a counter, not mainnet gas.** Most opcodes cost what they cost on mainnet. \
          Storage does not: there is no warm/cold access list, no refund and no 2 300-gas check \
          (the `SLOAD` and `SSTORE` rows). `gas_used` counts execution only: nothing is charged \
@@ -765,12 +794,35 @@ pub fn markdown() -> String {
     );
     writeln!(
         s,
-        "Of the 256 opcode bytes: {both_run} run on both paths, {cond} run for some operands \
-         only, {xlat_only} run in a translation and trap in the interpreter, {both_trap} trap on \
-         both, {invalid} is `INVALID`, and {undefined} are undefined. {differs} have gas that \
-         differs from mainnet's.\n"
+        "Of the 256 opcode bytes: {both_run} run on both paths, {cond} run for some operands or \
+         under some contexts only, {xlat_only} run in a translation and trap in the interpreter, \
+         {both_trap} trap on both, {invalid} is `INVALID`, and {undefined} are undefined. \
+         {differs} have gas that differs from mainnet's.\n"
     )
     .unwrap();
+
+    s.push_str("## Block context\n\n");
+    s.push_str(
+        "A call is proved before it is included, so no block fact can be a private input: a \
+         prover could supply any. A transaction of the form `InvokeAt` names a recent closed \
+         block, the reference block, and the validator puts that block's facts into the public \
+         segment the proof is checked against: context version 2 (fullnode \
+         `docs/evm-block-context.md`). The opcodes read them from public word 8 on (an EVM \
+         program is deployed with an empty public input, and the eight call-binding words come \
+         first), and only when one of them runs.\n\n\
+         - Under a **version-2 context** `NUMBER`, `TIMESTAMP`, `BASEFEE`, `GASPRICE`, \
+         `COINBASE`, `GASLIMIT` and `PREVRANDAO` push the words the rows below give, on both \
+         paths, and the interpreter's `CHAINID` and `ORIGIN` run too.\n\
+         - Under a **version-1 context** (an ordinary `Invoke`) each of them traps, exactly as \
+         before the block context existed.\n\
+         - A **`Call`** carries no context. A run that reaches one of these opcodes reads past \
+         the public segment, which no proof can show: there is no proof of it (it used to prove a \
+         status-2 halt). A run that reaches none is unchanged.\n\
+         - `TIMESTAMP` is a recent block's time, not \"now\": a deadline check passes for up to \
+         the reference window after the deadline. `PREVRANDAO` is at Ethereum's trust level and \
+         the prover chooses the reference block, so a contract must pin the block itself \
+         (fullnode `docs/evm-block-context.md` §11.4).\n\n",
+    );
 
     s.push_str("## Opcodes\n\n");
     s.push_str(
@@ -838,7 +890,9 @@ pub fn markdown() -> String {
          its head instead, or the reverse. Both are status 2 with `gas_used` equal to the limit.\n\
          2. **A translation runs a little more.** `CHAINID` (the `--chain-id` constant), `ORIGIN` \
          (= `CALLER`) and calls to precompiles 1 to 9 run in a translation and trap in the \
-         interpreter. A call on too shallow a stack underflows at the block head where the \
+         interpreter (`CHAINID` and `ORIGIN` run in the interpreter under a version-2 context, \
+         where its `CHAINID` is the context's chain id and a translation's is still the baked \
+         constant). A call on too shallow a stack underflows at the block head where the \
          interpreter traps; both are status 2.\n\
          3. **The code guard.** A translation refuses any code but the one it was translated \
          from (status 2, `gas_used` 0); the interpreter runs whatever code it is given.\n\n",
