@@ -24,3 +24,13 @@ rand_zkvm = { path = "../research" }
 # Its own workspace root, like every crate here (guests-compiled/sbpf-core, rand-guest, …): never
 # swept into research's or circuits' own cargo test/build.
 [workspace]
+
+# Constraint set 11: `rand_zkvm` proves and verifies through the vendored `p3-batch-stark`'s
+# `QuotientLayout` (`research/Cargo.toml`'s `[patch]`), and a `[patch]` applies only to the package
+# root that declares it — so this root carries the same three, or crates.io's 0.7.0 (which has no
+# `QuotientLayout`) is resolved and `rand_zkvm` does not compile. The hiding-RNG lock patch rides
+# along as `research/` takes it (`../vendor/PROVENANCE.md`).
+[patch.crates-io]
+p3-batch-stark = { path = "../vendor/p3-batch-stark" }
+p3-fri = { path = "../vendor/p3-fri" }
+p3-merkle-tree = { path = "../vendor/p3-merkle-tree" }
